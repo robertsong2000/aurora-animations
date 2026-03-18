@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矩阵雨 | Matrix Digital Rain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #0f0;
+            font-size: 16px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+
+        .speed-control {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .speed-control input[type="range"] {
+            width: 150px;
+            accent-color: #0f0;
+        }
+
+        @media (max-width: 600px) {
+            .info {
+                font-size: 12px;
+                top: 10px;
+            }
+            .speed-control {
+                font-size: 12px;
+                bottom: 10px;
+            }
+            .speed-control input[type="range"] {
+                width: 100px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="matrix"></canvas>
+    <div class="info">
+        <span>[ MATRIX RAIN ]</span>
+        <span>移动鼠标跟随光标 · 滚轮调节速度 · 点击产生爆炸</span>
+    </div>
+    <div class="speed-control">
+        <span>SPEED:</span>
+        <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1">
+        <span id="speedValue">1.0x</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== 配置 ==========
+            const CONFIG = {
+                fontSize: 16,
+                baseSpeed: 0.05,
+                trailLength: 20,
+                characterSet: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+                glowIntensity: 0.8,
+                maxExplosions: 10,
+                explosionParticles: 50
+            };
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('matrix');
+            const ctx = canvas.getContext('2d');
+            let width, height, columns, drops;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                columns = Math.floor(width / CONFIG.fontSize);
+                initDrops();
+            }
+
+            function initDrops() {
+                drops = [];
+                for (let i = 0; i < columns; i++) {
+                    drops[i] = {
+                        y: Math.random() * height,
+                        speed: 0.5 + Math.random() * 0.5,
+                        chars: [],
+                        length: 5 + Math.floor(Math.random() * 15)
+                    };
+                    
+                    // 为每个水滴生成字符序列
+                    for (let j = 0; j < drops[i].length; j++) {
+                        drops[i].chars.push(getRandomChar());
+                    }
+                }
+            }
+
+            function getRandomChar() {
+                return CONFIG.characterSet[Math.floor(Math.random() * CONFIG.characterSet.length)];
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 鼠标交互 ==========
+            let mouseX = -1000;
+            let mouseY = -1000;
+            let speedMultiplier = 1;
+            let isMouseDown = false;
+
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                mouseX = -1000;
+                mouseY = -1000;
+            });
+
+            canvas.addEventListener('mousedown', () => {
+                isMouseDown = true;
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+
+            // 点击爆炸效果
+            canvas.addEventListener('click', (e) => {
+                createExplosion(e.clientX, e.clientY);
+            });
+
+            // 滚轮调节速度
+            const speedSlider = document.getElementById('speedSlider');
+            const speedValue = document.getElementById('speedValue');
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                speedMultiplier = Math.max(0.1, Math.min(3, speedMultiplier + delta));
+                speedSlider.value = speedMultiplier;
+                speedValue.textContent = speedMultiplier.toFixed(1) + 'x';
+            });
+
+            speedSlider.addEventListener('input', (e) => {
+                speedMultiplier = parseFloat(e.target.value);
+                speedValue.textContent = speedMultiplier.toFixed(1) + 'x';
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            });
+
+            canvas.addEventListener('touchend', () => {
+                mouseX = -1000;
+                mouseY = -1000;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                createExplosion(touch.clientX, touch.clientY);
+            });
+
+            // ========== 爆炸效果 ==========
+            class ExplosionParticle {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 2 + Math.random() * 6;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                    this.life = 1;
+                    this.decay = 0.01 + Math.random() * 0.02;
+                    this.char = getRandomChar();
+                    this.size = 10 + Math.random() * 10;
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vx *= 0.98;
+                    this.vy *= 0.98;
+                    this.life -= this.decay;
+                }
+
+                draw() {
+                    if (this.life <= 0) return;
+                    
+                    const alpha = this.life;
+                    ctx.font = `${this.size}px Courier New`;
+                    ctx.fillStyle = `rgba(0, 255, 0, ${alpha})`;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#0f0';
+                    ctx.fillText(this.char, this.x, this.y);
+                    ctx.shadowBlur = 0;
+                }
+
+                isDead() {
+                    return this.life <= 0;
+                }
+            }
+
+            const explosions = [];
+
+            function createExplosion(x, y) {
+                if (explosions.length >= CONFIG.maxExplosions) return;
+                
+                const particles = [];
+                for (let i = 0; i < CONFIG.explosionParticles; i++) {
+                    particles.push(new ExplosionParticle(x, y));
+                }
+                explosions.push(particles);
+            }
+
+            // ========== 绘制函数 ==========
+            function draw() {
+                // 创建拖尾效果
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                ctx.fillRect(0, 0, width, height);
+
+                ctx.font = `${CONFIG.fontSize}px Courier New`;
+
+                for (let i = 0; i < drops.length; i++) {
+                    const drop = drops[i];
+                    const x = i * CONFIG.fontSize;
+                    
+                    // 检查是否在鼠标附近
+                    const distToMouse = Math.sqrt(Math.pow(x - mouseX, 2) + Math.pow(drop.y - mouseY, 2));
+                    const isNearMouse = distToMouse < 100;
+                    
+                    // 绘制整个字符序列
+                    for (let j = 0; j < drop.chars.length; j++) {
+                        const charY = drop.y - j * CONFIG.fontSize;
+                        
+                        if (charY < 0 || charY > height) continue;
+                        
+                        // 最前面的字符最亮
+                        let alpha = 1 - (j / drop.chars.length) * 0.8;
+                        
+                        // 鼠标附近增强发光
+                        if (isNearMouse && j === 0) {
+                            ctx.shadowBlur = 30;
+                            ctx.shadowColor = '#0f0';
+                            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                        } else {
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = '#0f0';
+                            ctx.fillStyle = `rgba(0, 255, 0, ${alpha * 0.8})`;
+                        }
+                        
+                        ctx.fillText(drop.chars[j], x, charY);
+                    }
+                    
+                    ctx.shadowBlur = 0;
+
+                    // 更新位置
+                    drop.y += CONFIG.fontSize * drop.speed * speedMultiplier;
+
+                    // 重置到顶部
+                    if (drop.y - drop.length * CONFIG.fontSize > height) {
+                        drop.y = -drop.length * CONFIG.fontSize;
+                        drop.speed = 0.5 + Math.random() * 0.5;
+                        drop.length = 5 + Math.floor(Math.random() * 15);
+                        drop.chars = [];
+                        for (let j = 0; j < drop.length; j++) {
+                            drop.chars.push(getRandomChar());
+                        }
+                    }
+
+                    // 随机改变字符
+                    if (Math.random() < 0.02) {
+                        const charIndex = Math.floor(Math.random() * drop.chars.length);
+                        drop.chars[charIndex] = getRandomChar();
+                    }
+                }
+
+                // 绘制鼠标光标高亮
+                if (mouseX > 0 && mouseY > 0) {
+                    const gradient = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 80);
+                    gradient.addColorStop(0, 'rgba(0, 255, 0, 0.3)');
+                    gradient.addColorStop(0.5, 'rgba(0, 255, 0, 0.1)');
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(mouseX - 80, mouseY - 80, 160, 160);
+                }
+
+                // 绘制爆炸效果
+                for (let i = explosions.length - 1; i >= 0; i--) {
+                    const particles = explosions[i];
+                    let allDead = true;
+                    
+                    for (let j = particles.length - 1; j >= 0; j--) {
+                        particles[j].update();
+                        particles[j].draw();
+                        
+                        if (!particles[j].isDead()) {
+                            allDead = false;
+                        } else {
+                            particles.splice(j, 1);
+                        }
+                    }
+                    
+                    if (allDead || particles.length === 0) {
+                        explosions.splice(i, 1);
+                    }
+                }
+            }
+
+            // ========== 动画循环 ==========
+            function animate() {
+                draw();
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            animate();
+
+            // ========== 性能优化：可见性检测 ==========
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    // 页面隐藏时暂停动画（可选）
+                    // 实际上 requestAnimationFrame 会自动暂停
+                }
+            });
+
+        })();
+    </script>
+</body>
+</html>
