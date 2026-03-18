@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极光之夜 | Aurora Borealis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0a0a1a 0%, #1a1a3a 50%, #0d0d2a 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+        }
+
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+
+        @media (max-width: 600px) {
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="aurora"></canvas>
+    <div class="info">
+        <span>✨ 极光之夜 | Aurora Borealis ✨</span>
+        <span>移动鼠标感受极光 · 点击产生星光涟漪</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== 配置 ==========
+            const CONFIG = {
+                starCount: 200,
+                auroraBands: 5,
+                waveSpeed: 0.002,
+                particleFadeSpeed: 0.015,
+                maxParticles: 100
+            };
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('aurora');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 星星系统 ==========
+            class Star {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height * 0.7;
+                    this.size = Math.random() * 2 + 0.5;
+                    this.twinkleSpeed = Math.random() * 0.05 + 0.02;
+                    this.twinklePhase = Math.random() * Math.PI * 2;
+                    this.baseAlpha = Math.random() * 0.5 + 0.5;
+                }
+
+                update(time) {
+                    this.alpha = this.baseAlpha * (0.5 + 0.5 * Math.sin(time * this.twinkleSpeed + this.twinklePhase));
+                }
+
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+                    ctx.fill();
+                }
+            }
+
+            // ========== 极光波段 ==========
+            class AuroraBand {
+                constructor(index, total) {
+                    this.index = index;
+                    this.total = total;
+                    this.hue = 120 + (index / total) * 60; // 绿色到青色范围
+                    this.yOffset = height * 0.2 + (index / total) * height * 0.4;
+                    this.amplitude = 50 + Math.random() * 100;
+                    this.frequency = 0.002 + Math.random() * 0.003;
+                    this.phase = Math.random() * Math.PI * 2;
+                    this.speed = 0.0005 + Math.random() * 0.001;
+                    this.thickness = 80 + Math.random() * 120;
+                    this.alpha = 0.15 + Math.random() * 0.15;
+                }
+
+                draw(time, mouseX) {
+                    const gradient = ctx.createLinearGradient(0, this.yOffset - this.thickness, 0, this.yOffset + this.thickness);
+                    const hueShift = (mouseX / width) * 30;
+                    const baseHue = this.hue + hueShift;
+                    
+                    gradient.addColorStop(0, 'transparent');
+                    gradient.addColorStop(0.3, `hsla(${baseHue}, 80%, 60%, ${this.alpha * 0.3})`);
+                    gradient.addColorStop(0.5, `hsla(${baseHue}, 90%, 70%, ${this.alpha})`);
+                    gradient.addColorStop(0.7, `hsla(${baseHue + 20}, 80%, 60%, ${this.alpha * 0.3})`);
+                    gradient.addColorStop(1, 'transparent');
+
+                    ctx.beginPath();
+                    ctx.moveTo(0, height);
+
+                    // 绘制波浪曲线
+                    for (let x = 0; x <= width; x += 5) {
+                        const wave1 = Math.sin(x * this.frequency + time * this.speed + this.phase) * this.amplitude;
+                        const wave2 = Math.sin(x * this.frequency * 1.5 + time * this.speed * 1.3) * this.amplitude * 0.5;
+                        const wave3 = Math.sin(x * this.frequency * 0.5 + time * this.speed * 0.7) * this.amplitude * 0.3;
+                        const y = this.yOffset + wave1 + wave2 + wave3;
+                        ctx.lineTo(x, y);
+                    }
+
+                    ctx.lineTo(width, height);
+                    ctx.closePath();
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+            }
+
+            // ========== 粒子系统（鼠标点击效果）============
+            class Particle {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = (Math.random() - 0.5) * 8;
+                    this.vy = (Math.random() - 0.5) * 8;
+                    this.size = Math.random() * 4 + 2;
+                    this.alpha = 1;
+                    this.hue = 120 + Math.random() * 60;
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vx *= 0.98;
+                    this.vy *= 0.98;
+                    this.alpha -= CONFIG.particleFadeSpeed;
+                    this.size *= 0.99;
+                }
+
+                draw() {
+                    if (this.alpha <= 0) return;
+                    
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+                    gradient.addColorStop(0, `hsla(${this.hue}, 100%, 80%, ${this.alpha})`);
+                    gradient.addColorStop(1, `hsla(${this.hue}, 100%, 60%, 0)`);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+
+                isDead() {
+                    return this.alpha <= 0;
+                }
+            }
+
+            // ========== 涟漪效果 ==========
+            class Ripple {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.radius = 0;
+                    this.maxRadius = 200;
+                    this.alpha = 0.8;
+                    this.speed = 5;
+                }
+
+                update() {
+                    this.radius += this.speed;
+                    this.alpha = 0.8 * (1 - this.radius / this.maxRadius);
+                }
+
+                draw() {
+                    if (this.alpha <= 0) return;
+                    
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = `hsla(150, 100%, 70%, ${this.alpha})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                isDead() {
+                    return this.radius >= this.maxRadius;
+                }
+            }
+
+            // ========== 初始化对象 ==========
+            const stars = [];
+            const auroraBands = [];
+            const particles = [];
+            const ripples = [];
+            let mouseX = width / 2;
+            let mouseY = height / 2;
+
+            // 创建星星
+            for (let i = 0; i < CONFIG.starCount; i++) {
+                stars.push(new Star());
+            }
+
+            // 创建极光波段
+            for (let i = 0; i < CONFIG.auroraBands; i++) {
+                auroraBands.push(new AuroraBand(i, CONFIG.auroraBands));
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('click', (e) => {
+                const x = e.clientX;
+                const y = e.clientY;
+                
+                // 添加粒子
+                const particleCount = 20;
+                for (let i = 0; i < particleCount && particles.length < CONFIG.maxParticles; i++) {
+                    particles.push(new Particle(x, y));
+                }
+                
+                // 添加涟漪
+                ripples.push(new Ripple(x, y));
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                const x = touch.clientX;
+                const y = touch.clientY;
+                
+                for (let i = 0; i < 20 && particles.length < CONFIG.maxParticles; i++) {
+                    particles.push(new Particle(x, y));
+                }
+                ripples.push(new Ripple(x, y));
+            });
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+            
+            function animate(currentTime) {
+                const deltaTime = currentTime - lastTime;
+                lastTime = currentTime;
+
+                // 清除画布（带拖尾效果）
+                ctx.fillStyle = 'rgba(10, 10, 26, 0.1)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 绘制星星
+                stars.forEach(star => {
+                    star.update(currentTime);
+                    star.draw();
+                });
+
+                // 绘制极光
+                auroraBands.forEach(band => {
+                    band.draw(currentTime, mouseX);
+                });
+
+                // 更新和绘制粒子
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].draw();
+                    if (particles[i].isDead()) {
+                        particles.splice(i, 1);
+                    }
+                }
+
+                // 更新和绘制涟漪
+                for (let i = ripples.length - 1; i >= 0; i--) {
+                    ripples[i].update();
+                    ripples[i].draw();
+                    if (ripples[i].isDead()) {
+                        ripples.splice(i, 1);
+                    }
+                }
+
+                // 鼠标光晕效果
+                if (mouseY < height * 0.8) {
+                    const glowGradient = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, 100);
+                    glowGradient.addColorStop(0, 'hsla(150, 100%, 70%, 0.1)');
+                    glowGradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = glowGradient;
+                    ctx.fillRect(mouseX - 100, mouseY - 100, 200, 200);
+                }
+
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+            // ========== 性能监控（开发用，可删除）============
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateFPS(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    // console.log(`FPS: ${fps}`);
+                }
+            }
+
+        })();
+    </script>
+</body>
+</html>
