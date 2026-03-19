@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水波纹 | Water Ripples</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a1628 0%, #1a2a4a 50%, #0a1a3a 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            background: rgba(20, 40, 80, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 180, 255, 0.3);
+            backdrop-filter: blur(5px);
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #88ccff;
+        }
+
+        .control-group input[type="range"] {
+            width: 130px;
+            accent-color: #44aaff;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            background: rgba(20, 40, 80, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 180, 255, 0.3);
+            z-index: 10;
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+            }
+            .control-group input[type="range"] {
+                width: 90px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="water"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>波纹强度: <span id="strengthValue">50</span></label>
+            <input type="range" id="strengthSlider" min="20" max="100" step="5" value="50">
+        </div>
+        <div class="control-group">
+            <label>衰减速度: <span id="decayValue">0.98</span></label>
+            <input type="range" id="decaySlider" min="0.95" max="0.995" step="0.005" value="0.98">
+        </div>
+        <div class="control-group">
+            <label>波速: <span id="speedValue">0.5</span></label>
+            <input type="range" id="speedSlider" min="0.1" max="1" step="0.1" value="0.5">
+        </div>
+    </div>
+
+    <div class="stats">
+        <div id="rippleCount">活跃波纹: 0</div>
+        <div id="fpsCounter">FPS: 60</div>
+    </div>
+
+    <div class="info">
+        <span>💧 水波纹 | Water Ripples 💧</span>
+        <span>点击/拖动创建波纹 · 双击产生大波纹 · 滚轮调节视角</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== 配置 ==========
+            const CONFIG = {
+                gridSize: 4, // 每个网格单元的像素大小
+                maxRipples: 50,
+                reflectionStrength: 0.5,
+                refractionStrength: 0.3
+            };
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('water');
+            const ctx = canvas.getContext('2d');
+            let width, height, cols, rows;
+
+            // 水波模拟数组
+            let currentBuffer = [];
+            let previousBuffer = [];
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                
+                cols = Math.floor(width / CONFIG.gridSize);
+                rows = Math.floor(height / CONFIG.gridSize);
+                
+                // 初始化缓冲区
+                currentBuffer = new Array(cols * rows).fill(0);
+                previousBuffer = new Array(cols * rows).fill(0);
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let rippleStrength = 50;
+            let decayRate = 0.98;
+            let waveSpeed = 0.5;
+            let mouseX = 0;
+            let mouseY = 0;
+            let isMouseDown = false;
+            let viewScale = 1;
+
+            // ========== 波纹模拟算法 ==========
+            function simulateWater() {
+                const newBuffer = new Array(cols * rows).fill(0);
+                
+                for (let y = 1; y < rows - 1; y++) {
+                    for (let x = 1; x < cols - 1; x++) {
+                        const i = y * cols + x;
+                        
+                        // 波动方程：基于周围点的平均值
+                        const neighbors = 
+                            currentBuffer[i - 1] + 
+                            currentBuffer[i + 1] + 
+                            currentBuffer[i - cols] + 
+                            currentBuffer[i + cols];
+                        
+                        // 新值 = (邻居平均值 * 2 - 前一值) * 衰减
+                        newBuffer[i] = ((neighbors / 4) * 2 - previousBuffer[i]) * decayRate;
+                    }
+                }
+                
+                previousBuffer = currentBuffer;
+                currentBuffer = newBuffer;
+            }
+
+            // ========== 添加波纹 ==========
+            function addRipple(x, y, strength) {
+                const gridX = Math.floor(x / CONFIG.gridSize);
+                const gridY = Math.floor(y / CONFIG.gridSize);
+                const radius = Math.floor(strength / 10);
+                
+                for (let dy = -radius; dy <= radius; dy++) {
+                    for (let dx = -radius; dx <= radius; dx++) {
+                        const px = gridX + dx;
+                        const py = gridY + dy;
+                        
+                        if (px >= 0 && px < cols && py >= 0 && py < rows) {
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist <= radius) {
+                                const i = py * cols + px;
+                                const intensity = strength * Math.cos(dist / radius * Math.PI / 2);
+                                currentBuffer[i] = Math.max(-255, Math.min(255, currentBuffer[i] + intensity));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ========== 渲染水面 ==========
+            function renderWater() {
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+                
+                // 背景渐变
+                const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+                bgGradient.addColorStop(0, '#0a1628');
+                bgGradient.addColorStop(0.5, '#1a2a4a');
+                bgGradient.addColorStop(1, '#0a1a3a');
+                
+                ctx.fillStyle = bgGradient;
+                ctx.fillRect(0, 0, width, height);
+                
+                // 渲染波纹效果
+                for (let y = 0; y < rows; y++) {
+                    for (let x = 0; x < cols; x++) {
+                        const i = y * cols + x;
+                        const value = currentBuffer[i];
+                        
+                        if (Math.abs(value) > 0.5) {
+                            // 计算折射偏移
+                            const offsetX = x > 0 && x < cols - 1 ? 
+                                currentBuffer[i - 1] - currentBuffer[i + 1] : 0;
+                            const offsetY = y > 0 && y < rows - 1 ? 
+                                currentBuffer[i - cols] - currentBuffer[i + cols] : 0;
+                            
+                            // 绘制网格单元
+                            const px = x * CONFIG.gridSize;
+                            const py = y * CONFIG.gridSize;
+                            
+                            // 根据波纹值计算颜色
+                            const intensity = Math.abs(value) / 255;
+                            const brightness = 100 + intensity * 155;
+                            const blue = Math.floor(150 + intensity * 105);
+                            const green = Math.floor(100 + intensity * 50);
+                            
+                            // 带发光效果的水波
+                            const gradient = ctx.createRadialGradient(
+                                px + offsetX * CONFIG.refractionStrength,
+                                py + offsetY * CONFIG.refractionStrength,
+                                0,
+                                px, py,
+                                CONFIG.gridSize * 2
+                            );
+                            
+                            gradient.addColorStop(0, `rgba(${brightness}, ${green}, ${blue}, ${intensity * 0.8})`);
+                            gradient.addColorStop(0.5, `rgba(${brightness * 0.7}, ${green * 0.7}, ${blue * 0.7}, ${intensity * 0.4})`);
+                            gradient.addColorStop(1, 'transparent');
+                            
+                            ctx.fillStyle = gradient;
+                            ctx.fillRect(
+                                px - CONFIG.gridSize,
+                                py - CONFIG.gridSize,
+                                CONFIG.gridSize * 3,
+                                CONFIG.gridSize * 3
+                            );
+                        }
+                    }
+                }
+            }
+
+            // ========== 背景粒子（浮游生物） ==========
+            class Plankton {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.size = 1 + Math.random() * 2;
+                    this.speedX = (Math.random() - 0.5) * 0.3;
+                    this.speedY = (Math.random() - 0.5) * 0.3;
+                    this.alpha = 0.2 + Math.random() * 0.3;
+                    this.pulsePhase = Math.random() * Math.PI * 2;
+                }
+
+                update(deltaTime) {
+                    this.x += this.speedX * deltaTime * 0.05;
+                    this.y += this.speedY * deltaTime * 0.05;
+                    this.pulsePhase += 0.02 * deltaTime * 0.05;
+
+                    if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                        this.reset();
+                    }
+                }
+
+                draw() {
+                    const pulse = 0.5 + 0.5 * Math.sin(this.pulsePhase);
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * pulse, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(150, 200, 255, ${this.alpha * pulse})`;
+                    ctx.fill();
+                }
+            }
+
+            const planktons = [];
+            for (let i = 0; i < 80; i++) {
+                planktons.push(new Plankton());
+            }
+
+            // ========== 雨滴效果 ==========
+            class Raindrop {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    this.x = Math.random() * width;
+                    this.y = -10;
+                    this.speedY = 5 + Math.random() * 5;
+                    this.size = 2 + Math.random() * 2;
+                }
+
+                update(deltaTime) {
+                    this.y += this.speedY * deltaTime * 0.1;
+
+                    if (this.y > height) {
+                        addRipple(this.x, this.y, this.size * 5);
+                        this.reset();
+                    }
+                }
+
+                draw() {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x, this.y + this.size * 3);
+                    ctx.strokeStyle = 'rgba(150, 200, 255, 0.6)';
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+            }
+
+            const raindrops = [];
+            let isRaining = false;
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousedown', (e) => {
+                isMouseDown = true;
+                addRipple(e.clientX, e.clientY, rippleStrength);
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+
+                if (isMouseDown) {
+                    addRipple(mouseX, mouseY, rippleStrength * 0.5);
+                }
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                // 双击产生大波纹
+                addRipple(e.clientX, e.clientY, rippleStrength * 2);
+                
+                // 添加额外的同心圆波纹
+                setTimeout(() => addRipple(e.clientX, e.clientY, rippleStrength * 1.5), 100);
+                setTimeout(() => addRipple(e.clientX, e.clientY, rippleStrength), 200);
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                viewScale = Math.max(0.5, Math.min(2, viewScale + delta));
+            });
+
+            // 键盘控制
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'r' || e.key === 'R') {
+                    // R键切换雨天
+                    isRaining = !isRaining;
+                    if (isRaining && raindrops.length === 0) {
+                        for (let i = 0; i < 30; i++) {
+                            raindrops.push(new Raindrop());
+                        }
+                    }
+                }
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                addRipple(touch.clientX, touch.clientY, rippleStrength);
+            });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                addRipple(touch.clientX, touch.clientY, rippleStrength * 0.3);
+            });
+
+            // ========== 控制器 ==========
+            const strengthSlider = document.getElementById('strengthSlider');
+            const decaySlider = document.getElementById('decaySlider');
+            const speedSlider = document.getElementById('speedSlider');
+
+            strengthSlider.addEventListener('input', (e) => {
+                rippleStrength = parseInt(e.target.value);
+                document.getElementById('strengthValue').textContent = rippleStrength;
+            });
+
+            decaySlider.addEventListener('input', (e) => {
+                decayRate = parseFloat(e.target.value);
+                document.getElementById('decayValue').textContent = decayRate.toFixed(3);
+            });
+
+            speedSlider.addEventListener('input', (e) => {
+                waveSpeed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = waveSpeed.toFixed(1);
+            });
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+            const rippleCountEl = document.getElementById('rippleCount');
+            const fpsCounterEl = document.getElementById('fpsCounter');
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    fpsCounterEl.textContent = `FPS: ${fps}`;
+                }
+                
+                // 计算活跃波纹数
+                let activeRipples = 0;
+                for (let i = 0; i < currentBuffer.length; i++) {
+                    if (Math.abs(currentBuffer[i]) > 1) activeRipples++;
+                }
+                rippleCountEl.textContent = `活跃波纹: ${activeRipples}`;
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+            let simulationAccumulator = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? currentTime - lastTime : 16;
+                lastTime = currentTime;
+
+                // 模拟水波（固定时间步长）
+                simulationAccumulator += deltaTime * waveSpeed;
+                while (simulationAccumulator >= 16) {
+                    simulateWater();
+                    simulationAccumulator -= 16;
+                }
+
+                // 清除画布
+                ctx.fillStyle = 'rgba(10, 22, 40, 0.3)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 渲染水面
+                renderWater();
+
+                // 更新和绘制浮游生物
+                planktons.forEach(p => {
+                    p.update(deltaTime);
+                    p.draw();
+                });
+
+                // 更新和绘制雨滴
+                if (isRaining) {
+                    raindrops.forEach(r => {
+                        r.update(deltaTime);
+                        r.draw();
+                    });
+                }
+
+                // 鼠标光标效果
+                if (mouseX > 0 && mouseY > 0) {
+                    const cursorGradient = ctx.createRadialGradient(
+                        mouseX, mouseY, 0,
+                        mouseX, mouseY, 50
+                    );
+                    cursorGradient.addColorStop(0, 'rgba(100, 180, 255, 0.2)');
+                    cursorGradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = cursorGradient;
+                    ctx.fillRect(mouseX - 50, mouseY - 50, 100, 100);
+                }
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+            // 初始波纹
+            setTimeout(() => {
+                addRipple(width / 2, height / 2, 80);
+            }, 500);
+
+        })();
+    </script>
+</body>
+</html>
