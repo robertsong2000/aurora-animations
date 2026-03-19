@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子动画 | Particle Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #0f0f1e 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            background: rgba(20, 20, 40, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 220px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #88aadd;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #6699ff;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(30, 30, 60, 0.8);
+            color: #88aadd;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #6699ff, #aa66ff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(100, 150, 255, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            background: rgba(20, 20, 40, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 180px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="particles"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>粒子模式</label>
+            <select id="modeSelect">
+                <option value="attract">吸引力模式</option>
+                <option value="repel">排斥力模式</option>
+                <option value="orbit">轨道模式</option>
+                <option value="swarm">群集模式</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>粒子数量: <span id="countValue">500</span></label>
+            <input type="range" id="countSlider" min="100" max="2000" step="50" value="500">
+        </div>
+        <div class="control-group">
+            <label>连接距离: <span id="distanceValue">120</span></label>
+            <input type="range" id="distanceSlider" min="50" max="300" step="10" value="120">
+        </div>
+        <div class="control-group">
+            <label>粒子速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1">
+        </div>
+        <button class="btn" id="resetBtn">🔄 重置粒子</button>
+    </div>
+
+    <div class="stats">
+        <div id="particleCount">粒子: 0</div>
+        <div id="connectionCount">连接: 0</div>
+        <div id="fpsCounter">FPS: 60</div>
+    </div>
+
+    <div class="info">
+        <span>✨ 粒子动画 | Particle Animation ✨</span>
+        <span>移动鼠标与粒子互动 · 点击切换模式 · 双击产生爆炸</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== 配置 ==========
+            const CONFIG = {
+                particleSize: 2,
+                maxConnections: 500,
+                friction: 0.98,
+                mouseRadius: 150
+            };
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('particles');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let particleCount = 500;
+            let connectionDistance = 120;
+            let speedMultiplier = 1;
+            let interactionMode = 'attract';
+            let mouseX = width / 2;
+            let mouseY = height / 2;
+            let isMouseDown = false;
+            let particles = [];
+            let connectionCount = 0;
+
+            // ========== 颜色主题 ==========
+            const colorThemes = {
+                attract: { hue: 200, sat: 80, light: 60 },
+                repel: { hue: 0, sat: 80, light: 60 },
+                orbit: { hue: 280, sat: 80, light: 60 },
+                swarm: { hue: 120, sat: 80, light: 60 }
+            };
+
+            // ========== 粒子类 ==========
+            class Particle {
+                constructor(x, y) {
+                    this.x = x !== undefined ? x : Math.random() * width;
+                    this.y = y !== undefined ? y : Math.random() * height;
+                    this.vx = (Math.random() - 0.5) * 2;
+                    this.vy = (Math.random() - 0.5) * 2;
+                    this.size = CONFIG.particleSize + Math.random() * 1;
+                    this.hueOffset = Math.random() * 30 - 15;
+                    this.life = 1;
+                }
+
+                update() {
+                    // 基础运动
+                    this.x += this.vx * speedMultiplier;
+                    this.y += this.vy * speedMultiplier;
+                    
+                    // 摩擦力
+                    this.vx *= CONFIG.friction;
+                    this.vy *= CONFIG.friction;
+                    
+                    // 鼠标交互
+                    const dx = mouseX - this.x;
+                    const dy = mouseY - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < CONFIG.mouseRadius && dist > 0) {
+                        const force = (CONFIG.mouseRadius - dist) / CONFIG.mouseRadius;
+                        const angle = Math.atan2(dy, dx);
+                        
+                        switch (interactionMode) {
+                            case 'attract':
+                                this.vx += Math.cos(angle) * force * 0.5;
+                                this.vy += Math.sin(angle) * force * 0.5;
+                                break;
+                            case 'repel':
+                                this.vx -= Math.cos(angle) * force * 0.8;
+                                this.vy -= Math.sin(angle) * force * 0.8;
+                                break;
+                            case 'orbit':
+                                const perpAngle = angle + Math.PI / 2;
+                                this.vx += Math.cos(perpAngle) * force * 0.3;
+                                this.vy += Math.sin(perpAngle) * force * 0.3;
+                                // 轻微吸引
+                                this.vx += Math.cos(angle) * force * 0.1;
+                                this.vy += Math.sin(angle) * force * 0.1;
+                                break;
+                            case 'swarm':
+                                // 群集行为：分离、对齐、聚集
+                                const sepX = -dx / dist * force * 0.3;
+                                const sepY = -dy / dist * force * 0.3;
+                                this.vx += sepX + Math.cos(angle) * force * 0.2;
+                                this.vy += sepY + Math.sin(angle) * force * 0.2;
+                                break;
+                        }
+                    }
+                    
+                    // 边界反弹
+                    if (this.x < 0 || this.x > width) {
+                        this.vx *= -0.8;
+                        this.x = Math.max(0, Math.min(width, this.x));
+                    }
+                    if (this.y < 0 || this.y > height) {
+                        this.vy *= -0.8;
+                        this.y = Math.max(0, Math.min(height, this.y));
+                    }
+                    
+                    // 限制最大速度
+                    const maxSpeed = 5;
+                    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    if (speed > maxSpeed) {
+                        this.vx = (this.vx / speed) * maxSpeed;
+                        this.vy = (this.vy / speed) * maxSpeed;
+                    }
+                }
+
+                draw() {
+                    const theme = colorThemes[interactionMode];
+                    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    const brightness = theme.light + speed * 5;
+                    
+                    // 粒子发光效果
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, this.size * 3
+                    );
+                    gradient.addColorStop(0, `hsla(${theme.hue + this.hueOffset}, ${theme.sat}%, ${brightness}%, 0.8)`);
+                    gradient.addColorStop(0.5, `hsla(${theme.hue + this.hueOffset}, ${theme.sat}%, ${brightness}%, 0.3)`);
+                    gradient.addColorStop(1, 'transparent');
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 核心
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${theme.hue + this.hueOffset}, ${theme.sat}%, ${brightness + 20}%, 1)`;
+                    ctx.fill();
+                }
+            }
+
+            // ========== 初始化粒子 ==========
+            function initParticles() {
+                particles = [];
+                for (let i = 0; i < particleCount; i++) {
+                    particles.push(new Particle());
+                }
+            }
+
+            initParticles();
+
+            // ========== 绘制连接线 ==========
+            function drawConnections() {
+                connectionCount = 0;
+                const theme = colorThemes[interactionMode];
+                
+                for (let i = 0; i < particles.length && connectionCount < CONFIG.maxConnections; i++) {
+                    for (let j = i + 1; j < particles.length && connectionCount < CONFIG.maxConnections; j++) {
+                        const dx = particles[i].x - particles[j].x;
+                        const dy = particles[i].y - particles[j].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist < connectionDistance) {
+                            const alpha = (1 - dist / connectionDistance) * 0.5;
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(particles[i].x, particles[i].y);
+                            ctx.lineTo(particles[j].x, particles[j].y);
+                            ctx.strokeStyle = `hsla(${theme.hue}, ${theme.sat}%, ${theme.light}%, ${alpha})`;
+                            ctx.lineWidth = alpha * 2;
+                            ctx.stroke();
+                            
+                            connectionCount++;
+                        }
+                    }
+                }
+            }
+
+            // ========== 爆炸效果 ==========
+            function createExplosion(x, y) {
+                const explosionParticles = 30;
+                for (let i = 0; i < explosionParticles; i++) {
+                    const angle = (i / explosionParticles) * Math.PI * 2;
+                    const speed = 3 + Math.random() * 5;
+                    
+                    const particle = new Particle(x, y);
+                    particle.vx = Math.cos(angle) * speed;
+                    particle.vy = Math.sin(angle) * speed;
+                    particle.size = CONFIG.particleSize + Math.random() * 2;
+                    
+                    if (particles.length < 2000) {
+                        particles.push(particle);
+                    }
+                }
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('mousedown', () => {
+                isMouseDown = true;
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+
+            canvas.addEventListener('click', () => {
+                // 点击切换模式
+                const modes = ['attract', 'repel', 'orbit', 'swarm'];
+                const currentIndex = modes.indexOf(interactionMode);
+                interactionMode = modes[(currentIndex + 1) % modes.length];
+                
+                document.getElementById('modeSelect').value = interactionMode;
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                createExplosion(e.clientX, e.clientY);
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                createExplosion(touch.clientX, touch.clientY);
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('modeSelect').addEventListener('change', (e) => {
+                interactionMode = e.target.value;
+            });
+
+            document.getElementById('countSlider').addEventListener('input', (e) => {
+                particleCount = parseInt(e.target.value);
+                document.getElementById('countValue').textContent = particleCount;
+                initParticles();
+            });
+
+            document.getElementById('distanceSlider').addEventListener('input', (e) => {
+                connectionDistance = parseInt(e.target.value);
+                document.getElementById('distanceValue').textContent = connectionDistance;
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                speedMultiplier = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = speedMultiplier.toFixed(1) + 'x';
+            });
+
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                initParticles();
+            });
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+                
+                document.getElementById('particleCount').textContent = `粒子: ${particles.length}`;
+                document.getElementById('connectionCount').textContent = `连接: ${connectionCount}`;
+            }
+
+            // ========== 动画循环 ==========
+            function animate(currentTime) {
+                // 清除画布（带拖尾）
+                ctx.fillStyle = 'rgba(15, 15, 30, 0.2)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 绘制连接线
+                drawConnections();
+
+                // 更新和绘制粒子
+                particles.forEach(particle => {
+                    particle.update();
+                    particle.draw();
+                });
+
+                // 鼠标光晕
+                const theme = colorThemes[interactionMode];
+                const gradient = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, CONFIG.mouseRadius);
+                gradient.addColorStop(0, `hsla(${theme.hue}, ${theme.sat}%, ${theme.light}%, 0.1)`);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(mouseX - CONFIG.mouseRadius, mouseY - CONFIG.mouseRadius, CONFIG.mouseRadius * 2, CONFIG.mouseRadius * 2);
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
