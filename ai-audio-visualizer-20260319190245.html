@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声波可视化 | Audio Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 50%, #0a1a2a 100%);
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            background: rgba(20, 10, 40, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 220px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #bb88ff;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #9955ff;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(30, 20, 60, 0.8);
+            color: #bb88ff;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #8855ff, #ff55aa);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(150, 100, 255, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            background: rgba(20, 10, 40, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 180px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="audioVisualizer"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>可视化模式</label>
+            <select id="vizMode">
+                <option value="bars">频谱柱状图</option>
+                <option value="wave">波形图</option>
+                <option value="circular">圆形频谱</option>
+                <option value="particles">粒子模式</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>频带数量: <span id="barsValue">64</span></label>
+            <input type="range" id="barsSlider" min="16" max="128" step="16" value="64">
+        </div>
+        <div class="control-group">
+            <label>灵敏度: <span id="sensitivityValue">1.0x</span></label>
+            <input type="range" id="sensitivitySlider" min="0.5" max="2" step="0.1" value="1">
+        </div>
+        <div class="control-group">
+            <label>动画速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0.5" max="3" step="0.1" value="1">
+        </div>
+        <button class="btn" id="beatBtn">🎵 触发节拍</button>
+    </div>
+
+    <div class="stats">
+        <div id="fpsCounter">FPS: 60</div>
+        <div id="modeDisplay">模式: 频谱柱状图</div>
+    </div>
+
+    <div class="info">
+        <span>🎵 声波可视化 | Audio Visualizer 🎵</span>
+        <span>移动鼠标控制波形 · 点击产生脉冲 · 双击切换配色</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('audioVisualizer');
+            const ctx = canvas.getContext('2d');
+            let width, height, centerX, centerY;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                centerX = width / 2;
+                centerY = height / 2;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let vizMode = 'bars';
+            let barCount = 64;
+            let sensitivity = 1;
+            let animSpeed = 1;
+            let mouseX = centerX;
+            let mouseY = centerY;
+            let time = 0;
+            let colorScheme = 0;
+            let audioData = [];
+            let smoothedData = [];
+
+            // 初始化音频数据
+            for (let i = 0; i < 128; i++) {
+                audioData.push(0);
+                smoothedData.push(0);
+            }
+
+            // ========== 颜色方案 ==========
+            const colorSchemes = [
+                // 紫粉渐变
+                (index, total) => {
+                    const hue = 270 + (index / total) * 60;
+                    return `hsl(${hue}, 80%, 60%)`;
+                },
+                // 蓝绿渐变
+                (index, total) => {
+                    const hue = 180 + (index / total) * 60;
+                    return `hsl(${hue}, 80%, 60%)`;
+                },
+                // 彩虹渐变
+                (index, total) => {
+                    const hue = (index / total) * 360;
+                    return `hsl(${hue}, 80%, 60%)`;
+                },
+                // 橙红渐变
+                (index, total) => {
+                    const hue = 0 + (index / total) * 60;
+                    return `hsl(${hue}, 90%, 60%)`;
+                }
+            ];
+
+            // ========== 模拟音频数据 ==========
+            function simulateAudio() {
+                // 模拟音频频谱（使用正弦波和噪声）
+                for (let i = 0; i < audioData.length; i++) {
+                    const baseFreq = 0.1 + i * 0.02;
+                    
+                    // 多层正弦波
+                    let value = Math.sin(time * baseFreq * animSpeed) * 0.3;
+                    value += Math.sin(time * baseFreq * 2.3 * animSpeed + i * 0.1) * 0.2;
+                    value += Math.sin(time * baseFreq * 0.7 * animSpeed - i * 0.05) * 0.15;
+                    
+                    // 鼠标影响
+                    const mouseInfluence = 1 - Math.abs(i - mouseX / width * audioData.length) / (audioData.length * 0.5);
+                    value += Math.max(0, mouseInfluence) * 0.3;
+                    
+                    // 随机噪声
+                    value += (Math.random() - 0.5) * 0.1;
+                    
+                    // 归一化到 0-1
+                    value = Math.max(0, Math.min(1, (value + 1) / 2));
+                    
+                    // 平滑处理
+                    smoothedData[i] = smoothedData[i] * 0.8 + value * 0.2;
+                    audioData[i] = smoothedData[i] * sensitivity;
+                }
+            }
+
+            // ========== 绘制频谱柱状图 ==========
+            function drawBars() {
+                const barWidth = (width * 0.8) / barCount;
+                const startX = width * 0.1;
+                const maxHeight = height * 0.6;
+                
+                for (let i = 0; i < barCount; i++) {
+                    const dataIndex = Math.floor(i * audioData.length / barCount);
+                    const barHeight = audioData[dataIndex] * maxHeight;
+                    
+                    const x = startX + i * barWidth;
+                    const y = centerY - barHeight / 2;
+                    
+                    // 渐变填充
+                    const gradient = ctx.createLinearGradient(x, y, x, y + barHeight);
+                    gradient.addColorStop(0, colorSchemes[colorScheme](i, barCount));
+                    gradient.addColorStop(0.5, colorSchemes[colorScheme](i, barCount).replace('60%', '70%'));
+                    gradient.addColorStop(1, colorSchemes[colorScheme](i, barCount));
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(x, y, barWidth - 2, barHeight);
+                    
+                    // 发光效果
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = colorSchemes[colorScheme](i, barCount);
+                    ctx.fillRect(x, y, barWidth - 2, barHeight);
+                    ctx.shadowBlur = 0;
+                    
+                    // 反射效果
+                    ctx.fillStyle = `${colorSchemes[colorScheme](i, barCount).replace(')', ', 0.2)')}`;
+                    ctx.fillRect(x, centerY + barHeight / 2 + 5, barWidth - 2, barHeight * 0.3);
+                }
+            }
+
+            // ========== 绘制波形图 ==========
+            function drawWave() {
+                const amplitude = height * 0.3;
+                const centerYPos = centerY;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, centerYPos);
+                
+                for (let x = 0; x < width; x++) {
+                    const dataIndex = Math.floor(x * audioData.length / width);
+                    const y = centerYPos + (audioData[dataIndex] - 0.5) * amplitude * 2;
+                    
+                    if (x === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                // 主波形
+                ctx.strokeStyle = colorSchemes[colorScheme](0, 1);
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = colorSchemes[colorScheme](0, 1);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                
+                // 填充区域
+                ctx.lineTo(width, height);
+                ctx.lineTo(0, height);
+                ctx.closePath();
+                ctx.fillStyle = `${colorSchemes[colorScheme](0, 1).replace(')', ', 0.2)')}`;
+                ctx.fill();
+            }
+
+            // ========== 绘制圆形频谱 ==========
+            function drawCircular() {
+                const maxRadius = Math.min(width, height) * 0.35;
+                const minRadius = maxRadius * 0.3;
+                
+                for (let i = 0; i < barCount; i++) {
+                    const dataIndex = Math.floor(i * audioData.length / barCount);
+                    const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+                    
+                    const radiusOffset = audioData[dataIndex] * (maxRadius - minRadius);
+                    const innerRadius = minRadius;
+                    const outerRadius = minRadius + radiusOffset;
+                    
+                    const x1 = centerX + Math.cos(angle) * innerRadius;
+                    const y1 = centerY + Math.sin(angle) * innerRadius;
+                    const x2 = centerX + Math.cos(angle) * outerRadius;
+                    const y2 = centerY + Math.sin(angle) * outerRadius;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.strokeStyle = colorSchemes[colorScheme](i, barCount);
+                    ctx.lineWidth = (Math.PI * 2 * minRadius) / barCount - 1;
+                    ctx.lineCap = 'round';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = colorSchemes[colorScheme](i, barCount);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+                
+                // 中心圆
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, minRadius * 0.8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(20, 10, 40, 0.8)';
+                ctx.fill();
+                ctx.strokeStyle = colorSchemes[colorScheme](0, 1);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // ========== 粒子模式 ==========
+            class Particle {
+                constructor(x, y, color) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = (Math.random() - 0.5) * 4;
+                    this.vy = (Math.random() - 0.5) * 4;
+                    this.size = 2 + Math.random() * 3;
+                    this.color = color;
+                    this.life = 1;
+                    this.decay = 0.01 + Math.random() * 0.02;
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vx *= 0.99;
+                    this.vy *= 0.99;
+                    this.life -= this.decay;
+                }
+
+                draw() {
+                    if (this.life <= 0) return;
+                    
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color.replace(')', `, ${this.life})`).replace('hsl', 'hsla');
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = this.color;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+
+                isDead() {
+                    return this.life <= 0;
+                }
+            }
+
+            const particles = [];
+
+            function drawParticles() {
+                // 根据音频数据生成粒子
+                for (let i = 0; i < barCount; i++) {
+                    const dataIndex = Math.floor(i * audioData.length / barCount);
+                    if (audioData[dataIndex] > 0.6 && Math.random() < 0.3) {
+                        const x = width * (i / barCount);
+                        const y = centerY;
+                        const color = colorSchemes[colorScheme](i, barCount);
+                        particles.push(new Particle(x, y, color));
+                    }
+                }
+                
+                // 更新和绘制粒子
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].draw();
+                    
+                    if (particles[i].isDead()) {
+                        particles.splice(i, 1);
+                    }
+                }
+                
+                // 限制粒子数量
+                if (particles.length > 500) {
+                    particles.splice(0, particles.length - 500);
+                }
+            }
+
+            // ========== 触发节拍 ==========
+            function triggerBeat() {
+                // 瞬间提高所有频段
+                for (let i = 0; i < audioData.length; i++) {
+                    smoothedData[i] = 1;
+                }
+                
+                // 爆发粒子
+                for (let i = 0; i < 50; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = Math.random() * 100;
+                    const x = centerX + Math.cos(angle) * distance;
+                    const y = centerY + Math.sin(angle) * distance;
+                    const color = colorSchemes[colorScheme](Math.floor(Math.random() * barCount), barCount);
+                    particles.push(new Particle(x, y, color));
+                }
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('click', (e) => {
+                // 点击产生局部脉冲
+                const clickIndex = Math.floor(e.clientX / width * audioData.length);
+                for (let i = 0; i < 10; i++) {
+                    const index = Math.max(0, Math.min(audioData.length - 1, clickIndex + i - 5));
+                    smoothedData[index] = 1;
+                }
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                // 双击切换配色
+                colorScheme = (colorScheme + 1) % colorSchemes.length;
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                const clickIndex = Math.floor(touch.clientX / width * audioData.length);
+                for (let i = 0; i < 10; i++) {
+                    const index = Math.max(0, Math.min(audioData.length - 1, clickIndex + i - 5));
+                    smoothedData[index] = 1;
+                }
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('vizMode').addEventListener('change', (e) => {
+                vizMode = e.target.value;
+                updateModeDisplay();
+            });
+
+            document.getElementById('barsSlider').addEventListener('input', (e) => {
+                barCount = parseInt(e.target.value);
+                document.getElementById('barsValue').textContent = barCount;
+            });
+
+            document.getElementById('sensitivitySlider').addEventListener('input', (e) => {
+                sensitivity = parseFloat(e.target.value);
+                document.getElementById('sensitivityValue').textContent = sensitivity.toFixed(1) + 'x';
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                animSpeed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = animSpeed.toFixed(1) + 'x';
+            });
+
+            document.getElementById('beatBtn').addEventListener('click', triggerBeat);
+
+            function updateModeDisplay() {
+                const modeNames = {
+                    bars: '频谱柱状图',
+                    wave: '波形图',
+                    circular: '圆形频谱',
+                    particles: '粒子模式'
+                };
+                document.getElementById('modeDisplay').textContent = `模式: ${modeNames[vizMode]}`;
+            }
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? currentTime - lastTime : 16;
+                lastTime = currentTime;
+
+                // 更新时间
+                time += deltaTime * 0.001;
+
+                // 模拟音频数据
+                simulateAudio();
+
+                // 清除画布（带拖尾）
+                ctx.fillStyle = 'rgba(10, 10, 26, 0.2)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 根据模式绘制
+                switch (vizMode) {
+                    case 'bars':
+                        drawBars();
+                        break;
+                    case 'wave':
+                        drawWave();
+                        break;
+                    case 'circular':
+                        drawCircular();
+                        break;
+                    case 'particles':
+                        drawBars();
+                        drawParticles();
+                        break;
+                }
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
