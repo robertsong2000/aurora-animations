@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>神经网络 | Neural Network</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a0a2a 0%, #1a0a3a 50%, #0a1a2a 100%);
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: rgba(150, 200, 255, 0.9);
+            font-size: 12px;
+            background: rgba(10, 10, 40, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 220px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #bb99ff;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #9966ff;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(20, 10, 60, 0.8);
+            color: #bb99ff;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #8855ff, #ff55aa);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(150, 100, 255, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(150, 200, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(150, 200, 255, 0.7);
+            font-size: 12px;
+            background: rgba(10, 10, 40, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 180px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="neuralNetwork"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>网络结构</label>
+            <select id="networkMode">
+                <option value="feedforward">前馈网络</option>
+                <option value="recurrent">循环网络</option>
+                <option value="convolutional">卷积网络</option>
+                <option value="random">随机连接</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>神经元数量: <span id="neuronsValue">100</span></label>
+            <input type="range" id="neuronsSlider" min="50" max="200" step="10" value="100">
+        </div>
+        <div class="control-group">
+            <label>激活强度: <span id="activationValue">1.0x</span></label>
+            <input type="range" id="activationSlider" min="0.5" max="2" step="0.1" value="1">
+        </div>
+        <div class="control-group">
+            <label>传播速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0.5" max="3" step="0.1" value="1">
+        </div>
+        <button class="btn" id="fireBtn">⚡ 触发激活</button>
+    </div>
+
+    <div class="stats">
+        <div id="fpsCounter">FPS: 60</div>
+        <div id="modeDisplay">模式: 前馈网络</div>
+        <div id="connectionCount">连接数: 0</div>
+    </div>
+
+    <div class="info">
+        <span>🧠 神经网络 | Neural Network 🧠</span>
+        <span>移动鼠标激活神经元 · 点击触发信号 · 双击重置网络</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('neuralNetwork');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                initNetwork();
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let networkMode = 'feedforward';
+            let neuronCount = 100;
+            let activationStrength = 1;
+            let propagationSpeed = 1;
+            let mouseX = width / 2;
+            let mouseY = height / 2;
+            let neurons = [];
+            let connections = [];
+            let time = 0;
+
+            // ========== 神经元类 ==========
+            class Neuron {
+                constructor(x, y, layer) {
+                    this.x = x;
+                    this.y = y;
+                    this.layer = layer;
+                    this.activation = 0;
+                    this.targetActivation = 0;
+                    this.radius = 8 + Math.random() * 4;
+                    this.pulsePhase = Math.random() * Math.PI * 2;
+                    this.connections = [];
+                }
+
+                activate(strength) {
+                    this.targetActivation = Math.min(1, this.targetActivation + strength);
+                }
+
+                update() {
+                    // 激活值平滑过渡
+                    this.activation += (this.targetActivation - this.activation) * 0.1;
+                    
+                    // 激活值衰减
+                    this.targetActivation *= 0.95;
+                    
+                    // 脉冲动画
+                    this.pulsePhase += 0.05;
+                }
+
+                draw() {
+                    const pulse = Math.sin(this.pulsePhase) * 0.2;
+                    const displayActivation = this.activation + pulse * this.activation;
+                    
+                    // 神经元光晕
+                    if (this.activation > 0.1) {
+                        const glowGradient = ctx.createRadialGradient(
+                            this.x, this.y, 0,
+                            this.x, this.y, this.radius * 4
+                        );
+                        glowGradient.addColorStop(0, `rgba(150, 100, 255, ${this.activation * 0.5})`);
+                        glowGradient.addColorStop(0.5, `rgba(100, 150, 255, ${this.activation * 0.2})`);
+                        glowGradient.addColorStop(1, 'transparent');
+                        
+                        ctx.fillStyle = glowGradient;
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.radius * 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    // 神经元核心
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, this.radius
+                    );
+                    gradient.addColorStop(0, `rgba(200, 180, 255, ${0.5 + displayActivation * 0.5})`);
+                    gradient.addColorStop(0.7, `rgba(150, 100, 255, ${0.3 + displayActivation * 0.5})`);
+                    gradient.addColorStop(1, `rgba(100, 50, 200, ${0.2 + displayActivation * 0.3})`);
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius * (1 + displayActivation * 0.3), 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 边框
+                    ctx.strokeStyle = `rgba(200, 150, 255, ${0.5 + displayActivation * 0.5})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            // ========== 连接类 ==========
+            class Connection {
+                constructor(from, to) {
+                    this.from = from;
+                    this.to = to;
+                    this.weight = Math.random();
+                    this.signal = 0;
+                    this.signalProgress = 1;
+                }
+
+                fire() {
+                    if (this.signalProgress >= 1) {
+                        this.signal = this.from.activation * this.weight;
+                        this.signalProgress = 0;
+                    }
+                }
+
+                update() {
+                    if (this.signalProgress < 1) {
+                        this.signalProgress += 0.05 * propagationSpeed;
+                        
+                        // 信号到达目标神经元
+                        if (this.signalProgress >= 1) {
+                            this.to.activate(this.signal * activationStrength);
+                            this.signal = 0;
+                        }
+                    }
+                }
+
+                draw() {
+                    const alpha = 0.2 + this.weight * 0.3 + this.signal * 0.5;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(this.from.x, this.from.y);
+                    ctx.lineTo(this.to.x, this.to.y);
+                    ctx.strokeStyle = `rgba(150, 100, 255, ${alpha})`;
+                    ctx.lineWidth = 1 + this.weight;
+                    ctx.stroke();
+                    
+                    // 绘制传输中的信号
+                    if (this.signalProgress < 1) {
+                        const x = this.from.x + (this.to.x - this.from.x) * this.signalProgress;
+                        const y = this.from.y + (this.to.y - this.from.y) * this.signalProgress;
+                        
+                        ctx.beginPath();
+                        ctx.arc(x, y, 3, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255, 200, 100, ${this.signal})`;
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // ========== 初始化网络 ==========
+            function initNetwork() {
+                neurons = [];
+                connections = [];
+                
+                const layers = 5;
+                const neuronsPerLayer = Math.floor(neuronCount / layers);
+                
+                // 创建神经元
+                for (let layer = 0; layer < layers; layer++) {
+                    const layerX = (width / (layers + 1)) * (layer + 1);
+                    
+                    for (let i = 0; i < neuronsPerLayer; i++) {
+                        const layerY = (height / (neuronsPerLayer + 1)) * (i + 1);
+                        neurons.push(new Neuron(layerX, layerY, layer));
+                    }
+                }
+                
+                // 创建连接
+                createConnections();
+            }
+
+            function createConnections() {
+                connections = [];
+                
+                switch (networkMode) {
+                    case 'feedforward':
+                        // 前馈网络：只连接相邻层
+                        const layers = [...new Set(neurons.map(n => n.layer))].sort((a, b) => a - b);
+                        
+                        for (let i = 0; i < layers.length - 1; i++) {
+                            const currentLayer = neurons.filter(n => n.layer === layers[i]);
+                            const nextLayer = neurons.filter(n => n.layer === layers[i + 1]);
+                            
+                            currentLayer.forEach(from => {
+                                // 每个神经元连接到下一层的2-4个神经元
+                                const connectionCount = 2 + Math.floor(Math.random() * 3);
+                                for (let j = 0; j < connectionCount; j++) {
+                                    const to = nextLayer[Math.floor(Math.random() * nextLayer.length)];
+                                    connections.push(new Connection(from, to));
+                                }
+                            });
+                        }
+                        break;
+                        
+                    case 'recurrent':
+                        // 循环网络：包含反馈连接
+                        neurons.forEach(from => {
+                            const connectionCount = 3 + Math.floor(Math.random() * 3);
+                            for (let i = 0; i < connectionCount; i++) {
+                                const to = neurons[Math.floor(Math.random() * neurons.length)];
+                                connections.push(new Connection(from, to));
+                            }
+                        });
+                        break;
+                        
+                    case 'convolutional':
+                        // 卷积网络：局部连接
+                        neurons.forEach(from => {
+                            neurons.forEach(to => {
+                                const dist = Math.sqrt((from.x - to.x) ** 2 + (from.y - to.y) ** 2);
+                                if (dist < 150 && dist > 0 && Math.random() < 0.3) {
+                                    connections.push(new Connection(from, to));
+                                }
+                            });
+                        });
+                        break;
+                        
+                    case 'random':
+                        // 随机连接
+                        neurons.forEach(from => {
+                            const connectionCount = 2 + Math.floor(Math.random() * 4);
+                            for (let i = 0; i < connectionCount; i++) {
+                                const to = neurons[Math.floor(Math.random() * neurons.length)];
+                                if (to !== from) {
+                                    connections.push(new Connection(from, to));
+                                }
+                            }
+                        });
+                        break;
+                }
+            }
+
+            initNetwork();
+
+            // ========== 触发激活 ==========
+            function triggerActivation(x, y, strength) {
+                neurons.forEach(neuron => {
+                    const dist = Math.sqrt((neuron.x - x) ** 2 + (neuron.y - y) ** 2);
+                    if (dist < 100) {
+                        neuron.activate((1 - dist / 100) * strength);
+                    }
+                });
+            }
+
+            function fireRandomNeuron() {
+                const neuron = neurons[Math.floor(Math.random() * neurons.length)];
+                neuron.activate(1);
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+                
+                // 鼠标附近的神经元被激活
+                if (Math.random() < 0.1) {
+                    triggerActivation(mouseX, mouseY, 0.3);
+                }
+            });
+
+            canvas.addEventListener('click', (e) => {
+                triggerActivation(e.clientX, e.clientY, 1);
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                initNetwork();
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+                
+                if (Math.random() < 0.1) {
+                    triggerActivation(mouseX, mouseY, 0.3);
+                }
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                triggerActivation(touch.clientX, touch.clientY, 1);
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('networkMode').addEventListener('change', (e) => {
+                networkMode = e.target.value;
+                createConnections();
+                updateModeDisplay();
+            });
+
+            document.getElementById('neuronsSlider').addEventListener('input', (e) => {
+                neuronCount = parseInt(e.target.value);
+                document.getElementById('neuronsValue').textContent = neuronCount;
+                initNetwork();
+            });
+
+            document.getElementById('activationSlider').addEventListener('input', (e) => {
+                activationStrength = parseFloat(e.target.value);
+                document.getElementById('activationValue').textContent = activationStrength.toFixed(1) + 'x';
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                propagationSpeed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = propagationSpeed.toFixed(1) + 'x';
+            });
+
+            document.getElementById('fireBtn').addEventListener('click', () => {
+                // 触发多个随机神经元
+                for (let i = 0; i < 10; i++) {
+                    setTimeout(() => fireRandomNeuron(), i * 50);
+                }
+            });
+
+            function updateModeDisplay() {
+                const modeNames = {
+                    feedforward: '前馈网络',
+                    recurrent: '循环网络',
+                    convolutional: '卷积网络',
+                    random: '随机连接'
+                };
+                document.getElementById('modeDisplay').textContent = `模式: ${modeNames[networkMode]}`;
+            }
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+                document.getElementById('connectionCount').textContent = `连接数: ${connections.length}`;
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? currentTime - lastTime : 16;
+                lastTime = currentTime;
+
+                time += deltaTime * 0.001;
+
+                // 清除画布
+                ctx.fillStyle = 'rgba(10, 10, 42, 0.15)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 更新和绘制连接
+                connections.forEach(conn => {
+                    conn.update();
+                    conn.draw();
+                });
+
+                // 更新和绘制神经元
+                neurons.forEach(neuron => {
+                    neuron.update();
+                    neuron.draw();
+                });
+
+                // 传播激活
+                connections.forEach(conn => {
+                    if (conn.from.activation > 0.1) {
+                        conn.fire();
+                    }
+                });
+
+                // 随机自发激活
+                if (Math.random() < 0.01) {
+                    fireRandomNeuron();
+                }
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
