@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>等离子体效果 | Plasma Effect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            background: rgba(20, 0, 40, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 200, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 220px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ff88cc;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #ff44aa;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(40, 0, 80, 0.8);
+            color: #ff88cc;
+            border: 1px solid rgba(255, 100, 200, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #ff44aa, #aa44ff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(255, 100, 200, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            background: rgba(20, 0, 40, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 100, 200, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 180px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="plasma"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>等离子模式</label>
+            <select id="plasmaMode">
+                <option value="classic">经典等离子</option>
+                <option value="tunnel">隧道效果</option>
+                <option value="cells">细胞分裂</option>
+                <option value="vortex">漩涡效果</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>颜色数量: <span id="colorsValue">256</span></label>
+            <input type="range" id="colorsSlider" min="16" max="512" step="16" value="256">
+        </div>
+        <div class="control-group">
+            <label>速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0.2" max="3" step="0.1" value="1">
+        </div>
+        <div class="control-group">
+            <label>复杂度: <span id="complexityValue">4</span></label>
+            <input type="range" id="complexitySlider" min="2" max="8" step="1" value="4">
+        </div>
+        <button class="btn" id="randomizeBtn">🎲 随机配色</button>
+    </div>
+
+    <div class="stats">
+        <div id="fpsCounter">FPS: 60</div>
+        <div id="modeDisplay">模式: 经典等离子</div>
+    </div>
+
+    <div class="info">
+        <span>⚡ 等离子体效果 | Plasma Effect ⚡</span>
+        <span>移动鼠标扭曲空间 · 点击产生涟漪 · 双击切换模式</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('plasma');
+            const ctx = canvas.getContext('2d');
+            let width, height, imageData, pixels;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                imageData = ctx.createImageData(width, height);
+                pixels = imageData.data;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let plasmaMode = 'classic';
+            let colorCount = 256;
+            let speed = 1;
+            let complexity = 4;
+            let mouseX = width / 2;
+            let mouseY = height / 2;
+            let time = 0;
+            let colorPalette = [];
+            let ripples = [];
+
+            // ========== 生成颜色调色板 ==========
+            function generatePalette() {
+                colorPalette = [];
+                const hueOffset = Math.random() * 360;
+                
+                for (let i = 0; i < colorCount; i++) {
+                    const t = i / colorCount;
+                    const hue = (hueOffset + t * 360) % 360;
+                    const saturation = 80 + Math.sin(t * Math.PI * 2) * 20;
+                    const lightness = 50 + Math.sin(t * Math.PI * 4) * 20;
+                    
+                    const rgb = hslToRgb(hue / 360, saturation / 100, lightness / 100);
+                    colorPalette.push(rgb);
+                }
+            }
+
+            generatePalette();
+
+            // ========== HSL 转 RGB ==========
+            function hslToRgb(h, s, l) {
+                let r, g, b;
+
+                if (s === 0) {
+                    r = g = b = l;
+                } else {
+                    const hue2rgb = (p, q, t) => {
+                        if (t < 0) t += 1;
+                        if (t > 1) t -= 1;
+                        if (t < 1/6) return p + (q - p) * 6 * t;
+                        if (t < 1/2) return q;
+                        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                        return p;
+                    };
+
+                    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                    const p = 2 * l - q;
+                    r = hue2rgb(p, q, h + 1/3);
+                    g = hue2rgb(p, q, h);
+                    b = hue2rgb(p, q, h - 1/3);
+                }
+
+                return {
+                    r: Math.round(r * 255),
+                    g: Math.round(g * 255),
+                    b: Math.round(b * 255)
+                };
+            }
+
+            // ========== 涟漪类 ==========
+            class Ripple {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.radius = 0;
+                    this.maxRadius = 200;
+                    this.speed = 3;
+                    this.alpha = 1;
+                }
+
+                update() {
+                    this.radius += this.speed;
+                    this.alpha = 1 - (this.radius / this.maxRadius);
+                }
+
+                isDead() {
+                    return this.radius >= this.maxRadius;
+                }
+            }
+
+            // ========== 等离子计算 ==========
+            function calculatePlasma(x, y, t) {
+                let value = 0;
+                const cx = x / width;
+                const cy = y / height;
+                
+                // 鼠标影响
+                const dx = (x - mouseX) / width;
+                const dy = (y - mouseY) / height;
+                const mouseDist = Math.sqrt(dx * dx + dy * dy);
+                const mouseInfluence = Math.sin(mouseDist * 10 - t * 2) * 0.3;
+                
+                switch (plasmaMode) {
+                    case 'classic':
+                        // 经典等离子效果
+                        for (let i = 0; i < complexity; i++) {
+                            const freq = (i + 1) * 2;
+                            value += Math.sin(cx * freq + t);
+                            value += Math.sin(cy * freq + t * 0.5);
+                            value += Math.sin((cx + cy) * freq * 0.5 + t * 0.7);
+                            value += Math.sin(Math.sqrt(cx * cx + cy * cy) * freq + t);
+                        }
+                        value /= complexity * 4;
+                        break;
+                        
+                    case 'tunnel':
+                        // 隧道效果
+                        const angle = Math.atan2(cy - 0.5, cx - 0.5);
+                        const dist = Math.sqrt((cx - 0.5) ** 2 + (cy - 0.5) ** 2);
+                        
+                        value = Math.sin(dist * 20 - t * 3);
+                        value += Math.sin(angle * 8 + t);
+                        value += Math.sin((dist * 10 + angle * 4) - t * 2);
+                        value /= 3;
+                        break;
+                        
+                    case 'cells':
+                        // 细胞分裂效果
+                        for (let i = 0; i < complexity; i++) {
+                            const px = 0.5 + Math.sin(t * 0.3 + i) * 0.3;
+                            const py = 0.5 + Math.cos(t * 0.4 + i * 1.5) * 0.3;
+                            const d = Math.sqrt((cx - px) ** 2 + (cy - py) ** 2);
+                            value += Math.sin(d * 30 - t * 2) / (d + 0.1);
+                        }
+                        value /= complexity;
+                        value = Math.max(-1, Math.min(1, value));
+                        break;
+                        
+                    case 'vortex':
+                        // 漩涡效果
+                        const vx = cx - 0.5;
+                        const vy = cy - 0.5;
+                        const vAngle = Math.atan2(vy, vx);
+                        const vDist = Math.sqrt(vx * vx + vy * vy);
+                        
+                        value = Math.sin(vAngle * 6 + vDist * 20 - t * 3);
+                        value += Math.sin(vDist * 15 - t * 2);
+                        value += Math.cos(vAngle * 4 + vDist * 10 + t);
+                        value /= 3;
+                        break;
+                }
+                
+                // 应用鼠标影响
+                value += mouseInfluence;
+                
+                // 添加涟漪效果
+                for (const ripple of ripples) {
+                    const rx = (x - ripple.x) / width;
+                    const ry = (y - ripple.y) / height;
+                    const rippleDist = Math.sqrt(rx * rx + ry * ry) * 2;
+                    if (rippleDist < ripple.radius / width * 2 + 0.1) {
+                        value += Math.sin(rippleDist * 50 - ripple.radius * 0.1) * ripple.alpha * 0.5;
+                    }
+                }
+                
+                return value;
+            }
+
+            // ========== 渲染等离子 ==========
+            function renderPlasma() {
+                const step = 2; // 每2像素采样一次，提升性能
+                
+                for (let y = 0; y < height; y += step) {
+                    for (let x = 0; x < width; x += step) {
+                        const value = calculatePlasma(x, y, time);
+                        
+                        // 映射到调色板
+                        const colorIndex = Math.floor(((value + 1) / 2) * (colorCount - 1));
+                        const color = colorPalette[Math.max(0, Math.min(colorCount - 1, colorIndex))];
+                        
+                        // 填充像素块
+                        for (let dy = 0; dy < step && y + dy < height; dy++) {
+                            for (let dx = 0; dx < step && x + dx < width; dx++) {
+                                const i = ((y + dy) * width + (x + dx)) * 4;
+                                pixels[i] = color.r;
+                                pixels[i + 1] = color.g;
+                                pixels[i + 2] = color.b;
+                                pixels[i + 3] = 255;
+                            }
+                        }
+                    }
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('click', (e) => {
+                // 点击产生涟漪
+                ripples.push(new Ripple(e.clientX, e.clientY));
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                // 双击切换模式
+                const modes = ['classic', 'tunnel', 'cells', 'vortex'];
+                const currentIndex = modes.indexOf(plasmaMode);
+                plasmaMode = modes[(currentIndex + 1) % modes.length];
+                
+                document.getElementById('plasmaMode').value = plasmaMode;
+                updateModeDisplay();
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                ripples.push(new Ripple(touch.clientX, touch.clientY));
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('plasmaMode').addEventListener('change', (e) => {
+                plasmaMode = e.target.value;
+                updateModeDisplay();
+            });
+
+            document.getElementById('colorsSlider').addEventListener('input', (e) => {
+                colorCount = parseInt(e.target.value);
+                document.getElementById('colorsValue').textContent = colorCount;
+                generatePalette();
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                speed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = speed.toFixed(1) + 'x';
+            });
+
+            document.getElementById('complexitySlider').addEventListener('input', (e) => {
+                complexity = parseInt(e.target.value);
+                document.getElementById('complexityValue').textContent = complexity;
+            });
+
+            document.getElementById('randomizeBtn').addEventListener('click', () => {
+                generatePalette();
+            });
+
+            function updateModeDisplay() {
+                const modeNames = {
+                    classic: '经典等离子',
+                    tunnel: '隧道效果',
+                    cells: '细胞分裂',
+                    vortex: '漩涡效果'
+                };
+                document.getElementById('modeDisplay').textContent = `模式: ${modeNames[plasmaMode]}`;
+            }
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? currentTime - lastTime : 16;
+                lastTime = currentTime;
+
+                // 更新时间
+                time += deltaTime * 0.001 * speed;
+
+                // 更新涟漪
+                for (let i = ripples.length - 1; i >= 0; i--) {
+                    ripples[i].update();
+                    if (ripples[i].isDead()) {
+                        ripples.splice(i, 1);
+                    }
+                }
+
+                // 渲染等离子
+                renderPlasma();
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
