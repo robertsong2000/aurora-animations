@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分形艺术 | Fractal Art</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            background: rgba(10, 10, 30, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 100, 255, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 250px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aabbff;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #6677ff;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(20, 20, 50, 0.8);
+            color: #aabbff;
+            border: 1px solid rgba(100, 100, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 10px;
+            background: linear-gradient(135deg, #6677ff, #aa55ff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(100, 100, 255, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            background: rgba(10, 10, 30, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 100, 255, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 200px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="fractal"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>分形类型</label>
+            <select id="fractalType">
+                <option value="mandelbrot">Mandelbrot 集合</option>
+                <option value="julia">Julia 集合</option>
+                <option value="sierpinski">Sierpinski 三角形</option>
+                <option value="tree">分形树</option>
+                <option value="koch">Koch 雪花</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>迭代深度: <span id="depthValue">6</span></label>
+            <input type="range" id="depthSlider" min="1" max="12" step="1" value="6">
+        </div>
+        <div class="control-group">
+            <label>缩放: <span id="zoomValue">1.0x</span></label>
+            <input type="range" id="zoomSlider" min="0.5" max="5" step="0.1" value="1">
+        </div>
+        <div class="control-group">
+            <label>动画速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0" max="3" step="0.1" value="1">
+        </div>
+        <button class="btn" id="randomizeBtn">🎲 随机生成</button>
+    </div>
+
+    <div class="stats">
+        <div id="fpsCounter">FPS: 60</div>
+        <div id="renderTime">渲染: 0ms</div>
+    </div>
+
+    <div class="info">
+        <span>🔷 分形艺术 | Fractal Art 🔷</span>
+        <span>移动鼠标探索 · 点击缩放 · 滚轮调整深度</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('fractal');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                needsRender = true;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let fractalType = 'mandelbrot';
+            let depth = 6;
+            let zoom = 1;
+            let animationSpeed = 1;
+            let centerX = 0;
+            let centerY = 0;
+            let mouseX = width / 2;
+            let mouseY = height / 2;
+            let needsRender = true;
+            let animationTime = 0;
+            let juliaC = { re: -0.7, im: 0.27015 };
+
+            // ========== Mandelbrot 集合 ==========
+            function mandelbrot(maxIter) {
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+                
+                const scale = 3.5 / (zoom * Math.min(width, height));
+                const offsetX = centerX - width / 2 * scale;
+                const offsetY = centerY - height / 2 * scale;
+                
+                for (let py = 0; py < height; py++) {
+                    for (let px = 0; px < width; px++) {
+                        const x0 = px * scale + offsetX;
+                        const y0 = py * scale + offsetY;
+                        
+                        let x = 0, y = 0;
+                        let iteration = 0;
+                        
+                        while (x * x + y * y <= 4 && iteration < maxIter) {
+                            const xTemp = x * x - y * y + x0;
+                            y = 2 * x * y + y0;
+                            x = xTemp;
+                            iteration++;
+                        }
+                        
+                        const i = (py * width + px) * 4;
+                        
+                        if (iteration === maxIter) {
+                            data[i] = 0;
+                            data[i + 1] = 0;
+                            data[i + 2] = 0;
+                            data[i + 3] = 255;
+                        } else {
+                            const hue = (iteration / maxIter) * 360;
+                            const rgb = hslToRgb(hue / 360, 0.8, 0.5);
+                            data[i] = rgb.r;
+                            data[i + 1] = rgb.g;
+                            data[i + 2] = rgb.b;
+                            data[i + 3] = 255;
+                        }
+                    }
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            // ========== Julia 集合 ==========
+            function julia(maxIter, c) {
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+                
+                const scale = 3.5 / (zoom * Math.min(width, height));
+                const offsetX = centerX - width / 2 * scale;
+                const offsetY = centerY - height / 2 * scale;
+                
+                for (let py = 0; py < height; py++) {
+                    for (let px = 0; px < width; px++) {
+                        let x = px * scale + offsetX;
+                        let y = py * scale + offsetY;
+                        
+                        let iteration = 0;
+                        
+                        while (x * x + y * y <= 4 && iteration < maxIter) {
+                            const xTemp = x * x - y * y + c.re;
+                            y = 2 * x * y + c.im;
+                            x = xTemp;
+                            iteration++;
+                        }
+                        
+                        const i = (py * width + px) * 4;
+                        
+                        if (iteration === maxIter) {
+                            data[i] = 0;
+                            data[i + 1] = 0;
+                            data[i + 2] = 0;
+                            data[i + 3] = 255;
+                        } else {
+                            const hue = (iteration / maxIter) * 360 + animationTime * 50;
+                            const rgb = hslToRgb((hue % 360) / 360, 0.8, 0.5);
+                            data[i] = rgb.r;
+                            data[i + 1] = rgb.g;
+                            data[i + 2] = rgb.b;
+                            data[i + 3] = 255;
+                        }
+                    }
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            // ========== Sierpinski 三角形 ==========
+            function sierpinski(maxDepth) {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, width, height);
+                
+                const size = Math.min(width, height) * 0.8 * zoom;
+                const startX = width / 2;
+                const startY = height * 0.1;
+                
+                function drawTriangle(x, y, size, depth) {
+                    if (depth === 0) {
+                        const hue = (animationTime * 30 + depth * 40) % 360;
+                        ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        ctx.lineTo(x - size / 2, y + size * Math.sqrt(3) / 2);
+                        ctx.lineTo(x + size / 2, y + size * Math.sqrt(3) / 2);
+                        ctx.closePath();
+                        ctx.fill();
+                    } else {
+                        const newSize = size / 2;
+                        drawTriangle(x, y, newSize, depth - 1);
+                        drawTriangle(x - newSize / 2, y + newSize * Math.sqrt(3) / 2, newSize, depth - 1);
+                        drawTriangle(x + newSize / 2, y + newSize * Math.sqrt(3) / 2, newSize, depth - 1);
+                    }
+                }
+                
+                drawTriangle(startX, startY, size, maxDepth);
+            }
+
+            // ========== 分形树 ==========
+            function fractalTree(maxDepth) {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, width, height);
+                
+                const startX = width / 2;
+                const startY = height * 0.9;
+                const trunkLength = height * 0.3 * zoom;
+                
+                function drawBranch(x, y, length, angle, depth) {
+                    if (depth === 0 || length < 2) return;
+                    
+                    const endX = x + Math.sin(angle) * length;
+                    const endY = y - Math.cos(angle) * length;
+                    
+                    const hue = (animationTime * 20 + (maxDepth - depth) * 30) % 360;
+                    ctx.strokeStyle = `hsl(${hue}, 70%, 50%)`;
+                    ctx.lineWidth = depth;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    
+                    const angleOffset = 0.4 + Math.sin(animationTime * 0.5) * 0.1;
+                    const lengthRatio = 0.7;
+                    
+                    drawBranch(endX, endY, length * lengthRatio, angle - angleOffset, depth - 1);
+                    drawBranch(endX, endY, length * lengthRatio, angle + angleOffset, depth - 1);
+                }
+                
+                drawBranch(startX, startY, trunkLength, 0, maxDepth);
+            }
+
+            // ========== Koch 雪花 ==========
+            function kochSnowflake(maxDepth) {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, width, height);
+                
+                const size = Math.min(width, height) * 0.6 * zoom;
+                const centerX = width / 2;
+                const centerY = height / 2;
+                
+                // 三个顶点
+                const points = [];
+                for (let i = 0; i < 3; i++) {
+                    const angle = (i * 2 * Math.PI / 3) - Math.PI / 2;
+                    points.push({
+                        x: centerX + Math.cos(angle) * size / 2,
+                        y: centerY + Math.sin(angle) * size / 2
+                    });
+                }
+                
+                function kochLine(x1, y1, x2, y2, depth) {
+                    if (depth === 0) {
+                        const hue = (animationTime * 30) % 360;
+                        ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
+                        ctx.lineWidth = 2;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+                    } else {
+                        const dx = x2 - x1;
+                        const dy = y2 - y1;
+                        
+                        const x3 = x1 + dx / 3;
+                        const y3 = y1 + dy / 3;
+                        
+                        const x5 = x1 + 2 * dx / 3;
+                        const y5 = y1 + 2 * dy / 3;
+                        
+                        const x4 = (x1 + x2) / 2 + Math.sqrt(3) * (y1 - y2) / 6;
+                        const y4 = (y1 + y2) / 2 + Math.sqrt(3) * (x2 - x1) / 6;
+                        
+                        kochLine(x1, y1, x3, y3, depth - 1);
+                        kochLine(x3, y3, x4, y4, depth - 1);
+                        kochLine(x4, y4, x5, y5, depth - 1);
+                        kochLine(x5, y5, x2, y2, depth - 1);
+                    }
+                }
+                
+                for (let i = 0; i < 3; i++) {
+                    const next = (i + 1) % 3;
+                    kochLine(points[i].x, points[i].y, points[next].x, points[next].y, maxDepth);
+                }
+            }
+
+            // ========== HSL 转 RGB ==========
+            function hslToRgb(h, s, l) {
+                let r, g, b;
+                
+                if (s === 0) {
+                    r = g = b = l;
+                } else {
+                    const hue2rgb = (p, q, t) => {
+                        if (t < 0) t += 1;
+                        if (t > 1) t -= 1;
+                        if (t < 1/6) return p + (q - p) * 6 * t;
+                        if (t < 1/2) return q;
+                        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                        return p;
+                    };
+                    
+                    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                    const p = 2 * l - q;
+                    r = hue2rgb(p, q, h + 1/3);
+                    g = hue2rgb(p, q, h);
+                    b = hue2rgb(p, q, h - 1/3);
+                }
+                
+                return {
+                    r: Math.round(r * 255),
+                    g: Math.round(g * 255),
+                    b: Math.round(b * 255)
+                };
+            }
+
+            // ========== 渲染函数 ==========
+            function render() {
+                const startTime = performance.now();
+                
+                switch (fractalType) {
+                    case 'mandelbrot':
+                        mandelbrot(depth * 10);
+                        break;
+                    case 'julia':
+                        julia(depth * 10, juliaC);
+                        break;
+                    case 'sierpinski':
+                        sierpinski(depth);
+                        break;
+                    case 'tree':
+                        fractalTree(depth);
+                        break;
+                    case 'koch':
+                        kochSnowflake(Math.min(depth, 6));
+                        break;
+                }
+                
+                const renderTime = performance.now() - startTime;
+                document.getElementById('renderTime').textContent = `渲染: ${renderTime.toFixed(1)}ms`;
+            }
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+                
+                if (fractalType === 'julia') {
+                    // Julia 集合：鼠标位置影响 c 参数
+                    juliaC.re = (mouseX - width / 2) / (width / 2);
+                    juliaC.im = (mouseY - height / 2) / (height / 2);
+                    needsRender = true;
+                } else if (fractalType === 'mandelbrot') {
+                    // Mandelbrot：鼠标位置影响中心点
+                    const scale = 3.5 / (zoom * Math.min(width, height));
+                    centerX = (mouseX - width / 2) * scale;
+                    centerY = (mouseY - height / 2) * scale;
+                    needsRender = true;
+                }
+            });
+
+            canvas.addEventListener('click', (e) => {
+                // 点击缩放
+                if (e.shiftKey) {
+                    zoom = Math.max(0.5, zoom * 0.8);
+                } else {
+                    zoom = Math.min(10, zoom * 1.2);
+                }
+                needsRender = true;
+                
+                document.getElementById('zoomSlider').value = zoom;
+                document.getElementById('zoomValue').textContent = zoom.toFixed(1) + 'x';
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -1 : 1;
+                depth = Math.max(1, Math.min(12, depth + delta));
+                needsRender = true;
+                
+                document.getElementById('depthSlider').value = depth;
+                document.getElementById('depthValue').textContent = depth;
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+                
+                if (fractalType === 'julia') {
+                    juliaC.re = (mouseX - width / 2) / (width / 2);
+                    juliaC.im = (mouseY - height / 2) / (height / 2);
+                    needsRender = true;
+                }
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('fractalType').addEventListener('change', (e) => {
+                fractalType = e.target.value;
+                centerX = 0;
+                centerY = 0;
+                zoom = 1;
+                needsRender = true;
+            });
+
+            document.getElementById('depthSlider').addEventListener('input', (e) => {
+                depth = parseInt(e.target.value);
+                document.getElementById('depthValue').textContent = depth;
+                needsRender = true;
+            });
+
+            document.getElementById('zoomSlider').addEventListener('input', (e) => {
+                zoom = parseFloat(e.target.value);
+                document.getElementById('zoomValue').textContent = zoom.toFixed(1) + 'x';
+                needsRender = true;
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                animationSpeed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = animationSpeed.toFixed(1) + 'x';
+            });
+
+            document.getElementById('randomizeBtn').addEventListener('click', () => {
+                fractalType = ['mandelbrot', 'julia', 'sierpinski', 'tree', 'koch'][Math.floor(Math.random() * 5)];
+                depth = 3 + Math.floor(Math.random() * 7);
+                zoom = 0.5 + Math.random() * 2;
+                
+                juliaC.re = -1 + Math.random() * 2;
+                juliaC.im = -1 + Math.random() * 2;
+                
+                document.getElementById('fractalType').value = fractalType;
+                document.getElementById('depthSlider').value = depth;
+                document.getElementById('depthValue').textContent = depth;
+                document.getElementById('zoomSlider').value = zoom;
+                document.getElementById('zoomValue').textContent = zoom.toFixed(1) + 'x';
+                
+                needsRender = true;
+            });
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? (currentTime - lastTime) / 1000 : 0.016;
+                lastTime = currentTime;
+
+                // 更新动画时间
+                animationTime += deltaTime * animationSpeed;
+
+                // 渲染分形
+                if (needsRender || animationSpeed > 0) {
+                    render();
+                    needsRender = false;
+                }
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
