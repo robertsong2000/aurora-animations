@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>磁场可视化 | Magnetic Field Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a0a2a 0%, #1a1a3a 50%, #0a0a1a 100%);
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            color: rgba(100, 150, 255, 0.9);
+            font-size: 12px;
+            background: rgba(10, 10, 30, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            backdrop-filter: blur(5px);
+            max-width: 220px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #88aadd;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #6699ff;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 5px;
+            background: rgba(20, 20, 50, 0.8);
+            color: #88aadd;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, #4488ff, #88aaff);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(100, 150, 255, 0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(100, 150, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(100, 150, 255, 0.7);
+            font-size: 12px;
+            background: rgba(10, 10, 30, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            z-index: 10;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                font-size: 10px;
+                padding: 10px;
+                max-width: 180px;
+            }
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="magneticField"></canvas>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>磁场模式</label>
+            <select id="fieldMode">
+                <option value="dipole">偶极子场</option>
+                <option value="quadrupole">四极子场</option>
+                <option value="solenoid">螺线管</option>
+                <option value="toroidal">环形场</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>场线密度: <span id="densityValue">30</span></label>
+            <input type="range" id="densitySlider" min="10" max="60" step="5" value="30">
+        </div>
+        <div class="control-group">
+            <label>场强: <span id="strengthValue">1.0x</span></label>
+            <input type="range" id="strengthSlider" min="0.5" max="2" step="0.1" value="1">
+        </div>
+        <div class="control-group">
+            <label>动画速度: <span id="speedValue">1.0x</span></label>
+            <input type="range" id="speedSlider" min="0.2" max="3" step="0.1" value="1">
+        </div>
+        <button class="btn" id="reverseBtn">🔄 反转磁场</button>
+    </div>
+
+    <div class="stats">
+        <div id="fpsCounter">FPS: 60</div>
+        <div id="modeDisplay">模式: 偶极子场</div>
+    </div>
+
+    <div class="info">
+        <span>🧲 磁场可视化 | Magnetic Field Visualization 🧲</span>
+        <span>移动鼠标观察场线 · 点击添加磁极 · 双击反转极性</span>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // ========== Canvas 初始化 ==========
+            const canvas = document.getElementById('magneticField');
+            const ctx = canvas.getContext('2d');
+            let width, height, centerX, centerY;
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                centerX = width / 2;
+                centerY = height / 2;
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+
+            // ========== 状态管理 ==========
+            let fieldMode = 'dipole';
+            let lineDensity = 30;
+            let fieldStrength = 1;
+            let animSpeed = 1;
+            let mouseX = centerX;
+            let mouseY = centerY;
+            let time = 0;
+            let reversed = false;
+            let particles = [];
+            let poles = [];
+
+            // ========== 磁极类 ==========
+            class Pole {
+                constructor(x, y, polarity) {
+                    this.x = x;
+                    this.y = y;
+                    this.polarity = polarity; // +1 (N) or -1 (S)
+                    this.strength = fieldStrength * 100;
+                }
+
+                draw() {
+                    const color = this.polarity > 0 ? '#ff4444' : '#4444ff';
+                    const label = this.polarity > 0 ? 'N' : 'S';
+                    
+                    // 发光效果
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, 30
+                    );
+                    gradient.addColorStop(0, color);
+                    gradient.addColorStop(0.5, color.replace('44', '88'));
+                    gradient.addColorStop(1, 'transparent');
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 30, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 核心圆
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 15, 0, Math.PI * 2);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // 标签
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, this.x, this.y);
+                }
+            }
+
+            // ========== 初始化磁极 ==========
+            function initPoles() {
+                poles = [];
+                
+                switch (fieldMode) {
+                    case 'dipole':
+                        poles.push(new Pole(centerX - 150, centerY, 1));
+                        poles.push(new Pole(centerX + 150, centerY, -1));
+                        break;
+                        
+                    case 'quadrupole':
+                        poles.push(new Pole(centerX - 150, centerY - 150, 1));
+                        poles.push(new Pole(centerX + 150, centerY - 150, -1));
+                        poles.push(new Pole(centerX - 150, centerY + 150, -1));
+                        poles.push(new Pole(centerX + 150, centerY + 150, 1));
+                        break;
+                        
+                    case 'solenoid':
+                        for (let i = 0; i < 5; i++) {
+                            const y = centerY - 200 + i * 100;
+                            poles.push(new Pole(centerX - 100, y, 1));
+                            poles.push(new Pole(centerX + 100, y, -1));
+                        }
+                        break;
+                        
+                    case 'toroidal':
+                        for (let i = 0; i < 8; i++) {
+                            const angle = (i / 8) * Math.PI * 2;
+                            const x = centerX + Math.cos(angle) * 200;
+                            const y = centerY + Math.sin(angle) * 200;
+                            poles.push(new Pole(x, y, i % 2 === 0 ? 1 : -1));
+                        }
+                        break;
+                }
+                
+                if (reversed) {
+                    poles.forEach(pole => pole.polarity *= -1);
+                }
+            }
+
+            initPoles();
+
+            // ========== 计算磁场 ==========
+            function calculateField(x, y) {
+                let bx = 0;
+                let by = 0;
+                
+                poles.forEach(pole => {
+                    const dx = x - pole.x;
+                    const dy = y - pole.y;
+                    const distSq = dx * dx + dy * dy;
+                    const dist = Math.sqrt(distSq);
+                    
+                    if (dist < 20) return; // 避免奇点
+                    
+                    // 磁场强度（反比于距离平方）
+                    const strength = pole.strength * pole.polarity / distSq;
+                    
+                    // 场方向（径向）
+                    bx += strength * dx / dist;
+                    by += strength * dy / dist;
+                });
+                
+                return { bx, by };
+            }
+
+            // ========== 绘制场线 ==========
+            function drawFieldLines() {
+                const startPoints = [];
+                
+                // 生成起始点（从N极出发）
+                poles.filter(p => p.polarity > 0).forEach(pole => {
+                    for (let i = 0; i < lineDensity / poles.filter(p => p.polarity > 0).length; i++) {
+                        const angle = (i / (lineDensity / poles.filter(p => p.polarity > 0).length)) * Math.PI * 2;
+                        const x = pole.x + Math.cos(angle) * 20;
+                        const y = pole.y + Math.sin(angle) * 20;
+                        startPoints.push({ x, y });
+                    }
+                });
+                
+                // 绘制每条场线
+                startPoints.forEach(start => {
+                    drawFieldLine(start.x, start.y);
+                });
+            }
+
+            function drawFieldLine(startX, startY) {
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                
+                let x = startX;
+                let y = startY;
+                const stepSize = 5;
+                const maxSteps = 500;
+                
+                for (let i = 0; i < maxSteps; i++) {
+                    const field = calculateField(x, y);
+                    const magnitude = Math.sqrt(field.bx * field.bx + field.by * field.by);
+                    
+                    if (magnitude < 0.001) break;
+                    
+                    // 归一化并步进
+                    const dx = (field.bx / magnitude) * stepSize;
+                    const dy = (field.by / magnitude) * stepSize;
+                    
+                    x += dx;
+                    y += dy;
+                    
+                    // 检查是否到达S极或边界
+                    let reachedPole = false;
+                    poles.forEach(pole => {
+                        if (pole.polarity < 0) {
+                            const dist = Math.sqrt((x - pole.x) ** 2 + (y - pole.y) ** 2);
+                            if (dist < 20) {
+                                reachedPole = true;
+                            }
+                        }
+                    });
+                    
+                    if (reachedPole || x < 0 || x > width || y < 0 || y > height) {
+                        break;
+                    }
+                    
+                    ctx.lineTo(x, y);
+                }
+                
+                // 绘制场线
+                const gradient = ctx.createLinearGradient(startX, startY, x, y);
+                gradient.addColorStop(0, 'rgba(255, 100, 100, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(150, 150, 255, 0.6)');
+                gradient.addColorStop(1, 'rgba(100, 100, 255, 0.8)');
+                
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
+            // ========== 粒子类 ==========
+            class FieldParticle {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    // 从随机N极出发
+                    const northPoles = poles.filter(p => p.polarity > 0);
+                    if (northPoles.length === 0) return;
+                    
+                    const pole = northPoles[Math.floor(Math.random() * northPoles.length)];
+                    const angle = Math.random() * Math.PI * 2;
+                    
+                    this.x = pole.x + Math.cos(angle) * 25;
+                    this.y = pole.y + Math.sin(angle) * 25;
+                    this.life = 200 + Math.random() * 100;
+                    this.maxLife = this.life;
+                    this.trail = [];
+                }
+
+                update() {
+                    const field = calculateField(this.x, this.y);
+                    const magnitude = Math.sqrt(field.bx * field.bx + field.by * field.by);
+                    
+                    if (magnitude > 0.001) {
+                        const speed = 2 * animSpeed;
+                        this.x += (field.bx / magnitude) * speed;
+                        this.y += (field.by / magnitude) * speed;
+                    }
+                    
+                    // 保存轨迹
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > 20) {
+                        this.trail.shift();
+                    }
+                    
+                    this.life--;
+                    
+                    // 检查是否到达S极
+                    let reachedPole = false;
+                    poles.forEach(pole => {
+                        if (pole.polarity < 0) {
+                            const dist = Math.sqrt((this.x - pole.x) ** 2 + (this.y - pole.y) ** 2);
+                            if (dist < 25) {
+                                reachedPole = true;
+                            }
+                        }
+                    });
+                    
+                    if (reachedPole || this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                        this.reset();
+                    }
+                }
+
+                draw() {
+                    if (this.life <= 0 || this.trail.length < 2) return;
+                    
+                    const alpha = this.life / this.maxLife;
+                    
+                    // 绘制轨迹
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    
+                    ctx.strokeStyle = `rgba(100, 200, 255, ${alpha * 0.5})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // 粒子
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(150, 220, 255, ${alpha})`;
+                    ctx.fill();
+                }
+
+                isDead() {
+                    return this.life <= 0;
+                }
+            }
+
+            // ========== 初始化粒子 ==========
+            function initParticles() {
+                particles = [];
+                for (let i = 0; i < 50; i++) {
+                    particles.push(new FieldParticle());
+                }
+            }
+
+            initParticles();
+
+            // ========== 鼠标交互 ==========
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+
+            canvas.addEventListener('click', (e) => {
+                // 点击添加临时磁极
+                const polarity = Math.random() > 0.5 ? 1 : -1;
+                poles.push(new Pole(e.clientX, e.clientY, polarity));
+                
+                // 3秒后移除
+                setTimeout(() => {
+                    const index = poles.findIndex(p => p.x === e.clientX && p.y === e.clientY);
+                    if (index > -1) {
+                        poles.splice(index, 1);
+                    }
+                }, 3000);
+            });
+
+            canvas.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                // 双击反转磁场
+                reversed = !reversed;
+                initPoles();
+            });
+
+            // 触摸支持
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                const polarity = Math.random() > 0.5 ? 1 : -1;
+                poles.push(new Pole(touch.clientX, touch.clientY, polarity));
+                
+                setTimeout(() => {
+                    const index = poles.findIndex(p => p.x === touch.clientX && p.y === touch.clientY);
+                    if (index > -1) {
+                        poles.splice(index, 1);
+                    }
+                }, 3000);
+            });
+
+            // ========== 控制器 ==========
+            document.getElementById('fieldMode').addEventListener('change', (e) => {
+                fieldMode = e.target.value;
+                initPoles();
+                initParticles();
+                updateModeDisplay();
+            });
+
+            document.getElementById('densitySlider').addEventListener('input', (e) => {
+                lineDensity = parseInt(e.target.value);
+                document.getElementById('densityValue').textContent = lineDensity;
+            });
+
+            document.getElementById('strengthSlider').addEventListener('input', (e) => {
+                fieldStrength = parseFloat(e.target.value);
+                document.getElementById('strengthValue').textContent = fieldStrength.toFixed(1) + 'x';
+                poles.forEach(pole => {
+                    pole.strength = fieldStrength * 100;
+                });
+            });
+
+            document.getElementById('speedSlider').addEventListener('input', (e) => {
+                animSpeed = parseFloat(e.target.value);
+                document.getElementById('speedValue').textContent = animSpeed.toFixed(1) + 'x';
+            });
+
+            document.getElementById('reverseBtn').addEventListener('click', () => {
+                reversed = !reversed;
+                initPoles();
+            });
+
+            function updateModeDisplay() {
+                const modeNames = {
+                    dipole: '偶极子场',
+                    quadrupole: '四极子场',
+                    solenoid: '螺线管',
+                    toroidal: '环形场'
+                };
+                document.getElementById('modeDisplay').textContent = `模式: ${modeNames[fieldMode]}`;
+            }
+
+            // ========== 性能监控 ==========
+            let fps = 0;
+            let frameCount = 0;
+            let lastFpsUpdate = 0;
+
+            function updateStats(currentTime) {
+                frameCount++;
+                if (currentTime - lastFpsUpdate >= 1000) {
+                    fps = frameCount;
+                    frameCount = 0;
+                    lastFpsUpdate = currentTime;
+                    document.getElementById('fpsCounter').textContent = `FPS: ${fps}`;
+                }
+            }
+
+            // ========== 动画循环 ==========
+            let lastTime = 0;
+
+            function animate(currentTime) {
+                const deltaTime = lastTime ? currentTime - lastTime : 16;
+                lastTime = currentTime;
+
+                // 更新时间
+                time += deltaTime * 0.001;
+
+                // 清除画布
+                ctx.fillStyle = 'rgba(10, 10, 42, 0.15)';
+                ctx.fillRect(0, 0, width, height);
+
+                // 绘制场线
+                drawFieldLines();
+
+                // 绘制磁极
+                poles.forEach(pole => pole.draw());
+
+                // 更新和绘制粒子
+                particles.forEach(particle => {
+                    particle.update();
+                    particle.draw();
+                });
+
+                updateStats(currentTime);
+                requestAnimationFrame(animate);
+            }
+
+            // 启动动画
+            requestAnimationFrame(animate);
+
+        })();
+    </script>
+</body>
+</html>
