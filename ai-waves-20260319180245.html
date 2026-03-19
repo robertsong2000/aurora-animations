@@ -144,28 +144,22 @@
             <label>波浪速度: <span id="speedValue">1.0x</span></label>
             <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1">
         </div>
-        <button class="btn" id="stormBtn">🌊 触发风暴</button>
+        <button class="btn" id="stormBtn">🌊 颶风效果</button>
     </div>
 
     <div class="stats">
-        <div id="fpsCounter">FPS: 60</div>
         <div id="modeDisplay">模式: 海洋波浪</div>
+        <div id="fpsCounter">FPS: 60</div>
     </div>
 
     <div class="info">
         <span>🌊 波浪动画 | Wave Animation 🌊</span>
-        <span>移动鼠标影响波浪 · 点击产生涟漪 · 双击切换模式</span>
+        <span>移动鼠标产生涟漪 · 点击创造波浪 · 双击触发风暴</span>
     </div>
 
     <script>
         (function() {
             'use strict';
-
-            // ========== 配置 ==========
-            const CONFIG = {
-                waveResolution: 3, // 每3像素一个采样点
-                maxRipples: 20
-            };
 
             // ========== Canvas 初始化 ==========
             const canvas = document.getElementById('waves');
@@ -187,178 +181,24 @@
             let waveSpeed = 1;
             let mouseX = width / 2;
             let mouseY = height / 2;
-            let time = 0;
             let isStorm = false;
             let stormTimer = 0;
-            let ripples = [];
+            let time = 0;
 
-            // ========== 波浪颜色主题 ==========
-            const waveColors = {
-                ocean: [
-                    'rgba(20, 60, 120, 0.6)',
-                    'rgba(30, 100, 180, 0.5)',
-                    'rgba(50, 150, 220, 0.4)',
-                    'rgba(100, 180, 240, 0.3)',
-                    'rgba(150, 210, 255, 0.2)'
-                ],
-                sine: [
-                    'rgba(100, 50, 150, 0.6)',
-                    'rgba(150, 80, 200, 0.5)',
-                    'rgba(180, 120, 230, 0.4)',
-                    'rgba(200, 150, 250, 0.3)',
-                    'rgba(220, 180, 255, 0.2)'
-                ],
-                interference: [
-                    'rgba(50, 150, 100, 0.6)',
-                    'rgba(80, 200, 150, 0.5)',
-                    'rgba(120, 220, 180, 0.4)',
-                    'rgba(160, 240, 200, 0.3)',
-                    'rgba(200, 250, 220, 0.2)'
-                ],
-                heartbeat: [
-                    'rgba(200, 50, 80, 0.6)',
-                    'rgba(230, 80, 100, 0.5)',
-                    'rgba(250, 120, 140, 0.4)',
-                    'rgba(255, 160, 180, 0.3)',
-                    'rgba(255, 200, 210, 0.2)'
-                ]
-            };
-
-            // ========== 计算波浪高度 ==========
-            function calculateWaveHeight(x, y, waveIndex, time) {
-                const frequency = 0.005 + waveIndex * 0.002;
-                const phase = waveIndex * Math.PI / 3;
-                const amp = amplitude * (1 - waveIndex * 0.15);
-                
-                // 鼠标影响
-                const dx = x - mouseX;
-                const dy = y - mouseY;
-                const mouseDist = Math.sqrt(dx * dx + dy * dy);
-                const mouseInfluence = Math.max(0, 1 - mouseDist / 300);
-                
-                let waveHeight = 0;
-                
-                switch (waveMode) {
-                    case 'ocean':
-                        // 复杂的海洋波浪（多个正弦波叠加）
-                        waveHeight = 
-                            Math.sin(x * frequency + time * 0.5 + phase) * amp * 0.5 +
-                            Math.sin(x * frequency * 1.5 + time * 0.7 + phase * 2) * amp * 0.3 +
-                            Math.sin(x * frequency * 2.3 + time * 0.3 + phase * 0.5) * amp * 0.2;
-                        
-                        // 鼠标影响（波浪隆起）
-                        waveHeight += mouseInfluence * 30 * Math.sin(time * 2);
-                        break;
-                        
-                    case 'sine':
-                        // 简单的正弦波
-                        waveHeight = Math.sin(x * frequency * 2 + time + phase) * amp;
-                        waveHeight += mouseInfluence * 20 * Math.sin(time * 3);
-                        break;
-                        
-                    case 'interference':
-                        // 干涉波（两个波源）
-                        const source1X = width * 0.3;
-                        const source2X = width * 0.7;
-                        const centerY = height * 0.5;
-                        
-                        const dist1 = Math.sqrt(Math.pow(x - source1X, 2) + Math.pow(y - centerY, 2));
-                        const dist2 = Math.sqrt(Math.pow(x - source2X, 2) + Math.pow(y - centerY, 2));
-                        
-                        waveHeight = 
-                            Math.sin(dist1 * 0.02 - time * 2 + phase) * amp * 0.5 +
-                            Math.sin(dist2 * 0.02 - time * 2 + phase) * amp * 0.5;
-                        
-                        waveHeight += mouseInfluence * 25;
-                        break;
-                        
-                    case 'heartbeat':
-                        // 心跳波形
-                        const t = (x / width + time * 0.5) % 1;
-                        
-                        if (t < 0.1) {
-                            waveHeight = amp * Math.sin(t * Math.PI / 0.1);
-                        } else if (t < 0.2) {
-                            waveHeight = -amp * 0.5 * Math.sin((t - 0.1) * Math.PI / 0.1);
-                        } else if (t < 0.3) {
-                            waveHeight = amp * 0.7 * Math.sin((t - 0.2) * Math.PI / 0.1);
-                        } else {
-                            waveHeight = 0;
-                        }
-                        
-                        waveHeight *= (1 - waveIndex * 0.1);
-                        waveHeight += mouseInfluence * 15 * Math.sin(time * 5);
-                        break;
-                }
-                
-                // 风暴效果
-                if (isStorm) {
-                    waveHeight += (Math.random() - 0.5) * 20;
-                }
-                
-                return waveHeight;
-            }
-
-            // ========== 绘制波浪 ==========
-            function drawWaves() {
-                const colors = waveColors[waveMode];
-                const baseY = height * 0.6;
-                
-                for (let wave = waveCount - 1; wave >= 0; wave--) {
-                    ctx.beginPath();
-                    
-                    // 从左下角开始
-                    ctx.moveTo(0, height);
-                    
-                    // 绘制波浪曲线
-                    for (let x = 0; x <= width; x += CONFIG.waveResolution) {
-                        const y = baseY + calculateWaveHeight(x, baseY, wave, time);
-                        ctx.lineTo(x, y);
-                    }
-                    
-                    // 连接到右下角
-                    ctx.lineTo(width, height);
-                    ctx.closePath();
-                    
-                    // 渐变填充
-                    const gradient = ctx.createLinearGradient(0, baseY - amplitude, 0, height);
-                    const colorIndex = Math.min(wave, colors.length - 1);
-                    gradient.addColorStop(0, colors[colorIndex]);
-                    gradient.addColorStop(1, 'rgba(10, 30, 60, 0.8)');
-                    
-                    ctx.fillStyle = gradient;
-                    ctx.fill();
-                    
-                    // 波浪顶部高光
-                    ctx.beginPath();
-                    for (let x = 0; x <= width; x += CONFIG.waveResolution) {
-                        const y = baseY + calculateWaveHeight(x, baseY, wave, time);
-                        if (x === 0) {
-                            ctx.moveTo(x, y);
-                        } else {
-                            ctx.lineTo(x, y);
-                        }
-                    }
-                    ctx.strokeStyle = colors[Math.min(wave + 1, colors.length - 1)].replace('0.', '0.3');
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
-            }
-
-            // ========== 涟漪效果 ==========
+            // ========== 涟漪类 ==========
             class Ripple {
                 constructor(x, y) {
                     this.x = x;
                     this.y = y;
                     this.radius = 0;
-                    this.maxRadius = 150;
-                    this.alpha = 0.8;
+                    this.maxRadius = 100 + Math.random() * 50;
+                    this.alpha = 1;
                     this.speed = 2;
                 }
 
                 update() {
                     this.radius += this.speed;
-                    this.alpha = 0.8 * (1 - this.radius / this.maxRadius);
+                    this.alpha = 1 - (this.radius / this.maxRadius);
                 }
 
                 draw() {
@@ -366,18 +206,9 @@
                     
                     ctx.beginPath();
                     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                    ctx.strokeStyle = `rgba(150, 200, 255, ${this.alpha})`;
+                    ctx.strokeStyle = `rgba(100, 180, 255, ${this.alpha * 0.5})`;
                     ctx.lineWidth = 2;
                     ctx.stroke();
-                    
-                    // 内圈
-                    if (this.radius > 10) {
-                        ctx.beginPath();
-                        ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
-                        ctx.strokeStyle = `rgba(180, 220, 255, ${this.alpha * 0.5})`;
-                        ctx.lineWidth = 1.5;
-                        ctx.stroke();
-                    }
                 }
 
                 isDead() {
@@ -385,105 +216,188 @@
                 }
             }
 
+            const ripples = [];
+
             // ========== 绘制背景 ==========
             function drawBackground() {
-                // 天空渐变
-                const skyGradient = ctx.createLinearGradient(0, 0, 0, height * 0.6);
-                skyGradient.addColorStop(0, '#0a1628');
-                skyGradient.addColorStop(0.5, '#1a3a5a');
-                skyGradient.addColorStop(1, '#2a5a8a');
+                const gradient = ctx.createLinearGradient(0, 0, 0, height);
+                gradient.addColorStop(0, '#0a1628');
+                gradient.addColorStop(0.3, '#1a2a4a');
+                gradient.addColorStop(0.6, '#2a4a6a');
+                gradient.addColorStop(1, '#1a3a5a');
                 
-                ctx.fillStyle = skyGradient;
+                ctx.fillStyle = gradient;
                 ctx.fillRect(0, 0, width, height);
-                
-                // 月亮/太阳
-                const celestialY = height * 0.2;
-                const celestialX = width * 0.8;
-                
-                const celestialGlow = ctx.createRadialGradient(
-                    celestialX, celestialY, 0,
-                    celestialX, celestialY, 80
-                );
-                celestialGlow.addColorStop(0, 'rgba(255, 250, 230, 0.9)');
-                celestialGlow.addColorStop(0.3, 'rgba(255, 240, 200, 0.5)');
-                celestialGlow.addColorStop(0.6, 'rgba(255, 220, 180, 0.2)');
-                celestialGlow.addColorStop(1, 'transparent');
-                
-                ctx.fillStyle = celestialGlow;
-                ctx.beginPath();
-                ctx.arc(celestialX, celestialY, 80, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 核心
-                ctx.beginPath();
-                ctx.arc(celestialX, celestialY, 30, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255, 250, 240, 0.95)';
-                ctx.fill();
             }
 
-            // ========== 鼠标交互 ==========
-            canvas.addEventListener('mousemove', (e) => {
-                mouseX = e.clientX;
-                mouseY = e.clientY;
-            });
-
-            canvas.addEventListener('click', (e) => {
-                // 点击产生涟漪
-                if (ripples.length < CONFIG.maxRipples) {
-                    ripples.push(new Ripple(e.clientX, e.clientY));
+            // ========== 绘制波浪 ==========
+            function drawWaves() {
+                for (let w = 0; w < waveCount; w++) {
+                    const baseY = height * 0.5 + w * 40;
+                    const waveAmplitude = amplitude * (1 - w * 0.1);
+                    const frequency = 0.01 + w * 0.005;
+                    const phaseOffset = w * 0.5;
+                    const alpha = 0.6 - w * 0.1;
+                    
+                    // 波浪渐变
+                    const gradient = ctx.createLinearGradient(0, baseY - waveAmplitude, 0, baseY + waveAmplitude);
+                    gradient.addColorStop(0, `rgba(50, 150, 255, ${alpha * 0.5})`);
+                    gradient.addColorStop(0.5, `rgba(100, 180, 255, ${alpha})`);
+                    gradient.addColorStop(1, `rgba(50, 120, 200, ${alpha * 0.3})`);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, height);
+                    
+                    // 绘制波浪路径
+                    for (let x = 0; x <= width; x += 2) {
+                        let y = baseY;
+                        
+                        switch (waveMode) {
+                            case 'ocean':
+                                // 海洋波浪：多层叠加
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                y += Math.sin(x * frequency * 1.5 + time * 1.2 + phaseOffset) * waveAmplitude * 0.5;
+                                y += Math.sin(x * frequency * 0.5 + time * 0.8 + phaseOffset) * waveAmplitude * 0.3;
+                                break;
+                            case 'sine':
+                                // 正弦波
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                break;
+                            case 'interference':
+                                // 干涉波
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                y += Math.sin(x * frequency * 2 + time) * waveAmplitude * 0.5;
+                                y += Math.cos(x * frequency + time) * waveAmplitude * 0.3;
+                                break;
+                            case 'heartbeat':
+                                // 心跳波
+                                const t = (x * frequency + time + phaseOffset) % (Math.PI * 2);
+                                y += Math.sin(t) * waveAmplitude;
+                                y += Math.sin(t * 3) * waveAmplitude * 0.3;
+                                break;
+                        }
+                        
+                        if (x === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    
+                    ctx.lineTo(width, height);
+                    ctx.closePath();
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // 波浪高光
+                    ctx.beginPath();
+                    for (let x = 0; x <= width; x += 5) {
+                        let y = baseY;
+                        
+                        switch (waveMode) {
+                            case 'ocean':
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                y += Math.sin(x * frequency * 1.5 + time * 1.2 + phaseOffset) * waveAmplitude * 0.5;
+                                break;
+                            case 'sine':
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                break;
+                            case 'interference':
+                                y += Math.sin(x * frequency + time + phaseOffset) * waveAmplitude;
+                                y += Math.sin(x * frequency * 2 + time) * waveAmplitude * 0.5;
+                                break;
+                            case 'heartbeat':
+                                const t = (x * frequency + time + phaseOffset) % (Math.PI * 2);
+                                y += Math.sin(t) * waveAmplitude;
+                                break;
+                        }
+                        
+                        if (x === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.3})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
                 }
-            });
+            }
+        }
 
-            canvas.addEventListener('dblclick', (e) => {
-                e.preventDefault();
-                // 双击切换模式
-                const modes = ['ocean', 'sine', 'interference', 'heartbeat'];
-                const currentIndex = modes.indexOf(waveMode);
-                waveMode = modes[(currentIndex + 1) % modes.length];
-                
-                document.getElementById('waveMode').value = waveMode;
-                updateModeDisplay();
-            });
+        // ========== 鼠标交互 ==========
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // 鼠标移动产生涟漪
+            if (Math.random() < 0.05 && ripples.length < 20) {
+                ripples.push(new Ripple(mouseX, mouseY));
+            }
+        });
 
-            // 触摸支持
-            canvas.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                const touch = e.touches[0];
-                mouseX = touch.clientX;
-                mouseY = touch.clientY;
-            });
+        canvas.addEventListener('click', (e) => {
+            // 点击创造波浪涟漪
+            for (let i = 0; i < 3; i++) {
+                const ripple = new Ripple(e.clientX + (Math.random() - 0.5) * 50, e.clientY);
+                ripples.push(ripple);
+            }
+        });
 
-            canvas.addEventListener('touchstart', (e) => {
-                const touch = e.touches[0];
-                if (ripples.length < CONFIG.maxRipples) {
-                    ripples.push(new Ripple(touch.clientX, touch.clientY));
-                }
-            });
+        canvas.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            // 双击触发风暴
+            isStorm = true;
+            stormTimer = 3000; // 3秒风暴
+            amplitude = 100;
+            waveSpeed = 2;
+            
+            document.getElementById('amplitudeSlider').value = amplitude;
+            document.getElementById('amplitudeValue').textContent = amplitude;
+            document.getElementById('speedSlider').value = waveSpeed;
+            document.getElementById('speedValue').textContent = waveSpeed.toFixed(1) + 'x';
+        });
 
-            // ========== 控制器 ==========
-            document.getElementById('waveMode').addEventListener('change', (e) => {
-                waveMode = e.target.value;
-                updateModeDisplay();
-            });
+        // 触摸支持
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
 
-            document.getElementById('waveCountSlider').addEventListener('input', (e) => {
-                waveCount = parseInt(e.target.value);
-                document.getElementById('waveCountValue').textContent = waveCount;
-            });
+        canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            for (let i = 0; i < 3; i++) {
+                const ripple = new Ripple(touch.clientX + (Math.random() - 0.5) * 50, touch.clientY);
+                ripples.push(ripple);
+            }
+        });
 
-            document.getElementById('amplitudeSlider').addEventListener('input', (e) => {
+        // ========== 控制器 ==========
+        document.getElementById('waveMode').addEventListener('change', (e) => {
+            waveMode = e.target.value;
+            updateModeDisplay();
+        });
+
+        document.getElementById('waveCountSlider').addEventListener('input', (e) => {
+            waveCount = parseInt(e.target.value);
+            document.getElementById('waveCountValue').textContent = waveCount;
+        });
+
+        document.getElementById('amplitudeSlider').addEventListener('input', (e) => {
                 amplitude = parseInt(e.target.value);
                 document.getElementById('amplitudeValue').textContent = amplitude;
             });
-
+            
             document.getElementById('speedSlider').addEventListener('input', (e) => {
                 waveSpeed = parseFloat(e.target.value);
                 document.getElementById('speedValue').textContent = waveSpeed.toFixed(1) + 'x';
             });
-
+            
             document.getElementById('stormBtn').addEventListener('click', () => {
                 isStorm = true;
-                stormTimer = 3000; // 3秒风暴
+                stormTimer = 3000;
                 amplitude = 100;
                 waveSpeed = 2;
                 
@@ -566,9 +480,9 @@
                 requestAnimationFrame(animate);
             }
 
+            
             // 启动动画
             requestAnimationFrame(animate);
-
         })();
     </script>
 </body>
