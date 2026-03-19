@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矩阵雨 | Matrix Digital Rain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #0f0;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #0f0, 0 0 20px #0f0, 0 0 40px #0f0;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.3;
+            letter-spacing: 10px;
+            animation: pulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; text-shadow: 0 0 10px #0f0, 0 0 20px #0f0; }
+            50% { opacity: 0.5; text-shadow: 0 0 20px #0f0, 0 0 40px #0f0, 0 0 60px #0f0; }
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 0, 0.6);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(0, 255, 0, 0.7);
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="matrix"></canvas>
+    <div class="title">MATRIX</div>
+    <div class="info">移动鼠标产生风效 | 点击生成字符爆发</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        
+        let width, height;
+        let columns = [];
+        let mouseX = 0, mouseY = 0;
+        let windForce = 0;
+        let bursts = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 字符集 - 包含日文片假名、数字和特殊字符
+        const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%^&*()';
+        
+        // 配置
+        const config = {
+            fontSize: 16,
+            baseSpeed: 0.5,
+            trailLength: 20,
+            columnCount: 0,
+            glowIntensity: 0.8
+        };
+        
+        // 列类
+        class Column {
+            constructor(x) {
+                this.x = x;
+                this.y = Math.random() * height;
+                this.speed = (Math.random() * 0.5 + 0.5) * config.baseSpeed;
+                this.chars = [];
+                this.charCount = Math.floor(Math.random() * 15) + 10;
+                this.opacity = Math.random() * 0.5 + 0.5;
+                this.windOffset = 0;
+                
+                // 生成字符序列
+                for (let i = 0; i < this.charCount; i++) {
+                    this.chars.push(this.getRandomChar());
+                }
+            }
+            
+            getRandomChar() {
+                return chars[Math.floor(Math.random() * chars.length)];
+            }
+            
+            update(wind) {
+                // 风力影响
+                this.windOffset = wind * (Math.random() * 0.5 + 0.5);
+                
+                // 下降速度
+                this.y += this.speed * config.fontSize;
+                
+                // 随机改变字符
+                if (Math.random() < 0.02) {
+                    const index = Math.floor(Math.random() * this.chars.length);
+                    this.chars[index] = this.getRandomChar();
+                }
+                
+                // 重置
+                if (this.y - this.charCount * config.fontSize > height) {
+                    this.y = -this.charCount * config.fontSize;
+                    this.speed = (Math.random() * 0.5 + 0.5) * config.baseSpeed;
+                    this.opacity = Math.random() * 0.5 + 0.5;
+                }
+            }
+            
+            draw() {
+                for (let i = 0; i < this.charCount; i++) {
+                    const charY = this.y - i * config.fontSize;
+                    
+                    // 只绘制可见范围内的字符
+                    if (charY < -config.fontSize || charY > height + config.fontSize) continue;
+                    
+                    // 渐变透明度（头部最亮）
+                    const charOpacity = (1 - i / this.charCount) * this.opacity;
+                    
+                    // 头部字符（最亮，带发光效果）
+                    if (i === 0) {
+                        ctx.shadowBlur = 20;
+                        ctx.shadowColor = '#0f0';
+                        ctx.fillStyle = `rgba(180, 255, 180, ${charOpacity})`;
+                    } else {
+                        ctx.shadowBlur = 0;
+                        // 渐变绿色
+                        const green = Math.floor(255 * (1 - i / this.charCount * 0.5));
+                        ctx.fillStyle = `rgba(0, ${green}, 0, ${charOpacity * 0.8})`;
+                    }
+                    
+                    ctx.fillText(
+                        this.chars[i],
+                        this.x + this.windOffset,
+                        charY
+                    );
+                }
+                
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // 爆发效果
+        class Burst {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.particles = [];
+                this.life = 1;
+                
+                // 生成爆发粒子
+                const particleCount = 30;
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 / particleCount) * i + Math.random() * 0.5;
+                    const speed = Math.random() * 5 + 3;
+                    this.particles.push({
+                        x: this.x,
+                        y: this.y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        char: chars[Math.floor(Math.random() * chars.length)],
+                        life: 1
+                    });
+                }
+            }
+            
+            update() {
+                this.life -= 0.02;
+                
+                this.particles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.1; // 重力
+                    p.life -= 0.015;
+                    p.vx *= 0.98;
+                    p.vy *= 0.98;
+                    
+                    // 随机改变字符
+                    if (Math.random() < 0.1) {
+                        p.char = chars[Math.floor(Math.random() * chars.length)];
+                    }
+                });
+                
+                return this.life > 0;
+            }
+            
+            draw() {
+                this.particles.forEach(p => {
+                    if (p.life <= 0) return;
+                    
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#0f0';
+                    ctx.fillStyle = `rgba(0, 255, 0, ${p.life * 0.8})`;
+                    ctx.fillText(p.char, p.x, p.y);
+                });
+                
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // 初始化列
+        function initColumns() {
+            columns = [];
+            config.columnCount = Math.ceil(width / config.fontSize) + 1;
+            
+            for (let i = 0; i < config.columnCount; i++) {
+                columns.push(new Column(i * config.fontSize));
+            }
+        }
+        
+        // 绘制背景（带渐隐效果）
+        function drawBackground() {
+            // 半透明黑色覆盖，产生拖尾效果
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 绘制背景
+            drawBackground();
+            
+            // 计算风力（基于鼠标位置）
+            const targetWind = (mouseX - width / 2) / width * 30;
+            windForce += (targetWind - windForce) * 0.05;
+            
+            // 设置字体
+            ctx.font = `${config.fontSize}px 'Courier New', monospace`;
+            ctx.textAlign = 'center';
+            
+            // 更新和绘制列
+            columns.forEach(column => {
+                column.update(windForce);
+                column.draw();
+            });
+            
+            // 更新和绘制爆发效果
+            bursts = bursts.filter(burst => {
+                const alive = burst.update();
+                burst.draw();
+                return alive;
+            });
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            
+            // 清空画布
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 重新初始化列
+            initColumns();
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        window.addEventListener('click', (e) => {
+            bursts.push(new Burst(e.clientX, e.clientY));
+            
+            // 限制爆发数量
+            if (bursts.length > 3) {
+                bursts.shift();
+            }
+        });
+        
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                bursts.push(new Burst(e.touches[0].clientX, e.touches[0].clientY));
+                
+                if (bursts.length > 3) {
+                    bursts.shift();
+                }
+            }
+        });
+        
+        // 阻止双击缩放（移动端）
+        window.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
