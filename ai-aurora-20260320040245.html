@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极光效果 | Aurora Borealis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="aurora"></canvas>
+    <div class="info">移动鼠标控制极光方向 | 点击产生光波涟漪</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        // 性能优化：使用对象池和缓存
+        const canvas = document.getElementById('aurora');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let targetMouseX = 0, targetMouseY = 0;
+        let time = 0;
+        let ripples = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 极光参数
+        const auroraConfig = {
+            layers: 5,
+            baseSpeed: 0.0003,
+            waveAmplitude: 50,
+            particleCount: 150,
+            colors: [
+                { r: 0, g: 255, b: 180 },   // 青色
+                { r: 100, g: 200, b: 255 }, // 浅蓝
+                { r: 150, g: 100, b: 255 }, // 紫色
+                { r: 0, g: 200, b: 150 },   // 深青
+                { r: 200, g: 150, b: 255 }  // 淡紫
+            ]
+        };
+        
+        // 粒子对象池
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height * 0.6;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.3;
+                this.size = Math.random() * 3 + 1;
+                this.alpha = Math.random() * 0.5 + 0.2;
+                this.colorIndex = Math.floor(Math.random() * auroraConfig.colors.length);
+            }
+            
+            update(mouseInfluence) {
+                // 鼠标影响
+                const dx = mouseX - this.x;
+                const dy = mouseY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 200) {
+                    const force = (200 - dist) / 200 * 0.02;
+                    this.vx += dx * force * 0.01;
+                    this.vy += dy * force * 0.01;
+                }
+                
+                // 基础运动
+                this.x += this.vx + mouseInfluence.x * 0.5;
+                this.y += this.vy + mouseInfluence.y * 0.3;
+                
+                // 边界检测
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height * 0.7) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const color = auroraConfig.colors[this.colorIndex];
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha})`;
+                ctx.fill();
+            }
+        }
+        
+        // 光波涟漪
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 300;
+                this.alpha = 1;
+                this.speed = 5;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1 - (this.radius / this.maxRadius);
+                return this.alpha > 0;
+            }
+            
+            draw() {
+                if (this.alpha <= 0) return;
+                
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, this.radius * 0.8,
+                    this.x, this.y, this.radius
+                );
+                
+                gradient.addColorStop(0, `rgba(100, 255, 200, 0)`);
+                gradient.addColorStop(0.5, `rgba(150, 200, 255, ${this.alpha * 0.3})`);
+                gradient.addColorStop(1, `rgba(200, 150, 255, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // 初始化粒子
+        let particles = [];
+        
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < auroraConfig.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 绘制极光层
+        function drawAuroraLayer(layerIndex, mouseInfluence) {
+            const color = auroraConfig.colors[layerIndex % auroraConfig.colors.length];
+            const speed = auroraConfig.baseSpeed * (layerIndex + 1);
+            const amplitude = auroraConfig.waveAmplitude * (1 - layerIndex * 0.15);
+            
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            
+            // 生成波浪路径
+            for (let x = 0; x <= width; x += 5) {
+                const y = height * 0.3 
+                    + Math.sin((x * 0.003 + time * speed + layerIndex) + mouseInfluence.x * 0.001) * amplitude
+                    + Math.sin((x * 0.002 + time * speed * 1.5 + layerIndex * 2) + mouseInfluence.y * 0.001) * amplitude * 0.5
+                    + layerIndex * 30;
+                
+                ctx.lineTo(x, y);
+            }
+            
+            ctx.lineTo(width, height);
+            ctx.closePath();
+            
+            // 创建渐变
+            const gradient = ctx.createLinearGradient(0, height * 0.2, 0, height * 0.8);
+            gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0.15)`);
+            gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, 0.08)`);
+            gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+        
+        // 绘制星星背景
+        function drawStars() {
+            const starCount = 100;
+            for (let i = 0; i < starCount; i++) {
+                const x = (i * 137.508) % width;
+                const y = (i * 73.254) % (height * 0.6);
+                const size = (i % 3) + 0.5;
+                const twinkle = Math.sin(time * 0.002 + i) * 0.3 + 0.7;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${twinkle * 0.8})`;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制地平线
+        function drawHorizon() {
+            const gradient = ctx.createLinearGradient(0, height * 0.85, 0, height);
+            gradient.addColorStop(0, 'rgba(20, 30, 40, 0)');
+            gradient.addColorStop(0.5, 'rgba(20, 30, 40, 0.5)');
+            gradient.addColorStop(1, 'rgba(10, 15, 25, 1)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, height * 0.85, width, height * 0.15);
+            
+            // 山脉轮廓
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            
+            for (let x = 0; x <= width; x += 20) {
+                const mountainHeight = Math.sin(x * 0.01) * 30 + Math.sin(x * 0.02) * 20 + 50;
+                ctx.lineTo(x, height - mountainHeight);
+            }
+            
+            ctx.lineTo(width, height);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(10, 15, 25, 0.9)';
+            ctx.fill();
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 清空画布
+            ctx.fillStyle = 'rgba(5, 10, 20, 1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 平滑鼠标移动
+            mouseX += (targetMouseX - mouseX) * 0.05;
+            mouseY += (targetMouseY - mouseY) * 0.05;
+            
+            const mouseInfluence = {
+                x: (mouseX - width / 2) / width,
+                y: (mouseY - height / 2) / height
+            };
+            
+            // 绘制星星
+            drawStars();
+            
+            // 绘制极光层（从后往前）
+            for (let i = auroraConfig.layers - 1; i >= 0; i--) {
+                drawAuroraLayer(i, mouseInfluence);
+            }
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update(mouseInfluence);
+                particle.draw();
+            });
+            
+            // 更新和绘制涟漪
+            ripples = ripples.filter(ripple => {
+                const alive = ripple.update();
+                ripple.draw();
+                return alive;
+            });
+            
+            // 绘制地平线
+            drawHorizon();
+            
+            // 更新时间
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            // 继续动画
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            
+            // 重新初始化粒子
+            if (particles.length === 0) {
+                initParticles();
+            }
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            targetMouseX = e.clientX;
+            targetMouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                targetMouseX = e.touches[0].clientX;
+                targetMouseY = e.touches[0].clientY;
+            }
+        });
+        
+        window.addEventListener('click', (e) => {
+            ripples.push(new Ripple(e.clientX, e.clientY));
+            
+            // 限制涟漪数量
+            if (ripples.length > 5) {
+                ripples.shift();
+            }
+        });
+        
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                ripples.push(new Ripple(e.touches[0].clientX, e.touches[0].clientY));
+                
+                if (ripples.length > 5) {
+                    ripples.shift();
+                }
+            }
+        });
+        
+        // 初始化
+        resize();
+        targetMouseX = width / 2;
+        targetMouseY = height / 2;
+        mouseX = targetMouseX;
+        mouseY = targetMouseY;
+        render();
+    </script>
+</body>
+</html>
