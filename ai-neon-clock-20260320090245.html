@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹时钟 | Neon Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .clock-container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+        }
+        
+        .time {
+            font-size: 120px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            text-shadow: 
+                0 0 10px currentColor,
+                0 0 20px currentColor,
+                0 0 40px currentColor,
+                0 0 80px currentColor;
+            animation: pulse 2s ease-in-out infinite;
+            transition: color 0.3s;
+        }
+        
+        .date {
+            font-size: 24px;
+            margin-top: 20px;
+            letter-spacing: 5px;
+            text-shadow: 
+                0 0 5px currentColor,
+                0 0 10px currentColor;
+            opacity: 0.8;
+            transition: color 0.3s;
+        }
+        
+        .milliseconds {
+            font-size: 36px;
+            margin-top: 10px;
+            letter-spacing: 3px;
+            opacity: 0.6;
+            text-shadow: 0 0 10px currentColor;
+            transition: color 0.3s;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                filter: brightness(1);
+                text-shadow: 
+                    0 0 10px currentColor,
+                    0 0 20px currentColor,
+                    0 0 40px currentColor,
+                    0 0 80px currentColor;
+            }
+            50% { 
+                filter: brightness(1.2);
+                text-shadow: 
+                    0 0 20px currentColor,
+                    0 0 40px currentColor,
+                    0 0 80px currentColor,
+                    0 0 120px currentColor;
+            }
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+        }
+        
+        .mode-indicator {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="effects"></canvas>
+    
+    <div class="clock-container">
+        <div class="time" id="time">00:00:00</div>
+        <div class="date" id="date">2026年3月20日 星期五</div>
+        <div class="milliseconds" id="ms">.000</div>
+    </div>
+    
+    <div class="mode-indicator" id="mode">样式: 标准 | 主题: 青色</div>
+    <div class="info">移动鼠标改变颜色 | 点击切换样式</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('effects');
+        const ctx = canvas.getContext('2d');
+        const timeDisplay = document.getElementById('time');
+        const dateDisplay = document.getElementById('date');
+        const msDisplay = document.getElementById('ms');
+        const modeDisplay = document.getElementById('mode');
+        const fpsDisplay = document.getElementById('fps');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let particles = [];
+        let rings = [];
+        let currentStyle = 0;
+        let hue = 180; // 青色
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 时钟样式
+        const styles = [
+            { name: '标准', format: '24h' },
+            { name: '12小时制', format: '12h' },
+            { name: '二进制', format: 'binary' },
+            { name: '罗马数字', format: 'roman' }
+        ];
+        
+        // 主题颜色
+        const themes = [
+            { name: '青色', hue: 180 },
+            { name: '粉色', hue: 320 },
+            { name: '绿色', hue: 120 },
+            { name: '紫色', hue: 270 },
+            { name: '橙色', hue: 30 },
+            { name: '蓝色', hue: 210 }
+        ];
+        let currentTheme = 0;
+        
+        // 粒子类
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = (Math.random() - 0.5) * 3;
+                this.life = 1;
+                this.decay = 0.02 + Math.random() * 0.02;
+                this.size = Math.random() * 3 + 1;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                this.vy += 0.05; // 轻微重力
+                
+                return this.life > 0;
+            }
+            
+            draw(hue) {
+                const alpha = this.life;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue}, 100%, 60%, ${alpha})`;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // 光环类
+        class Ring {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 100 + Math.random() * 100;
+                this.speed = 2 + Math.random() * 2;
+                this.life = 1;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.life = 1 - (this.radius / this.maxRadius);
+                
+                return this.life > 0;
+            }
+            
+            draw(hue) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${this.life * 0.5})`;
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // 绘制背景网格
+        function drawGrid() {
+            const gridSize = 50;
+            ctx.strokeStyle = `hsla(${hue}, 50%, 20%, 0.3)`;
+            ctx.lineWidth = 1;
+            
+            // 垂直线
+            for (let x = 0; x < width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            
+            // 水平线
+            for (let y = 0; y < height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+        }
+        
+        // 绘制扫描线
+        function drawScanlines() {
+            ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.03)`;
+            const scanlineY = (Date.now() * 0.1) % height;
+            
+            for (let i = 0; i < 3; i++) {
+                const y = (scanlineY + i * 3) % height;
+                ctx.fillRect(0, y, width, 2);
+            }
+        }
+        
+        // 绘制角落装饰
+        function drawCorners() {
+            const size = 100;
+            const offset = 30;
+            ctx.strokeStyle = `hsla(${hue}, 100%, 60%, 0.5)`;
+            ctx.lineWidth = 2;
+            
+            // 左上
+            ctx.beginPath();
+            ctx.moveTo(offset, offset + size);
+            ctx.lineTo(offset, offset);
+            ctx.lineTo(offset + size, offset);
+            ctx.stroke();
+            
+            // 右上
+            ctx.beginPath();
+            ctx.moveTo(width - offset - size, offset);
+            ctx.lineTo(width - offset, offset);
+            ctx.lineTo(width - offset, offset + size);
+            ctx.stroke();
+            
+            // 左下
+            ctx.beginPath();
+            ctx.moveTo(offset, height - offset - size);
+            ctx.lineTo(offset, height - offset);
+            ctx.lineTo(offset + size, height - offset);
+            ctx.stroke();
+            
+            // 右下
+            ctx.beginPath();
+            ctx.moveTo(width - offset - size, height - offset);
+            ctx.lineTo(width - offset, height - offset);
+            ctx.lineTo(width - offset, height - offset - size);
+            ctx.stroke();
+        }
+        
+        // 绘制发光点
+        function drawGlowPoints() {
+            const points = [
+                { x: width / 2, y: 100 },
+                { x: width / 2, y: height - 100 },
+                { x: 100, y: height / 2 },
+                { x: width - 100, y: height / 2 }
+            ];
+            
+            points.forEach((point, i) => {
+                const pulse = Math.sin(Date.now() * 0.003 + i) * 0.3 + 0.7;
+                const gradient = ctx.createRadialGradient(
+                    point.x, point.y, 0,
+                    point.x, point.y, 30
+                );
+                gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, ${pulse * 0.8})`);
+                gradient.addColorStop(0.5, `hsla(${hue}, 100%, 60%, ${pulse * 0.3})`);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 30, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            });
+        }
+        
+        // 更新时钟显示
+        function updateClock() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            const ms = now.getMilliseconds();
+            
+            const style = styles[currentStyle];
+            let timeStr, dateStr, msStr;
+            
+            // 日期
+            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+            dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${weekdays[now.getDay()]}`;
+            
+            // 毫秒
+            msStr = `.${ms.toString().padStart(3, '0')}`;
+            
+            // 根据样式格式化时间
+            switch (style.format) {
+                case '24h':
+                    timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    break;
+                    
+                case '12h':
+                    const h12 = hours % 12 || 12;
+                    const ampm = hours < 12 ? 'AM' : 'PM';
+                    timeStr = `${h12.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} ${ampm}`;
+                    break;
+                    
+                case 'binary':
+                    const hBin = hours.toString(2).padStart(5, '0');
+                    const mBin = minutes.toString(2).padStart(6, '0');
+                    const sBin = seconds.toString(2).padStart(6, '0');
+                    timeStr = `${hBin}:${mBin}:${sBin}`;
+                    break;
+                    
+                case 'roman':
+                    const romanNumerals = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+                    const hRom = hours < 13 ? romanNumerals[hours] : romanNumerals[hours - 12];
+                    const mRom = toRoman(minutes);
+                    const sRom = toRoman(seconds);
+                    timeStr = `${hRom}:${mRom}:${sRom}`;
+                    break;
+            }
+            
+            timeDisplay.textContent = timeStr;
+            dateDisplay.textContent = dateStr;
+            msDisplay.textContent = msStr;
+            
+            // 更新颜色
+            const color = `hsl(${hue}, 100%, 60%)`;
+            timeDisplay.style.color = color;
+            dateDisplay.style.color = color;
+            msDisplay.style.color = color;
+        }
+        
+        // 转换为罗马数字
+        function toRoman(num) {
+            if (num === 0) return '0';
+            const roman = [
+                ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'],
+                ['', 'X', 'XX', 'XXX', 'XL', 'L']
+            ];
+            const tens = Math.floor(num / 10);
+            const ones = num % 10;
+            return roman[1][tens] + roman[0][ones];
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 清空画布
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制背景效果
+            drawGrid();
+            drawScanlines();
+            drawCorners();
+            drawGlowPoints();
+            
+            // 更新和绘制粒子
+            particles = particles.filter(p => {
+                const alive = p.update();
+                if (alive) p.draw(hue);
+                return alive;
+            });
+            
+            // 更新和绘制光环
+            rings = rings.filter(r => {
+                const alive = r.update();
+                if (alive) r.draw(hue);
+                return alive;
+            });
+            
+            // 鼠标位置产生粒子
+            if (Math.random() > 0.7) {
+                particles.push(new Particle(mouseX, mouseY));
+            }
+            
+            // 更新时钟
+            updateClock();
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            
+            // 调整字体大小
+            const fontSize = Math.min(width / 8, 120);
+            timeDisplay.style.fontSize = `${fontSize}px`;
+        }
+        
+        // 切换样式
+        function cycleStyle() {
+            currentStyle = (currentStyle + 1) % styles.length;
+            updateModeDisplay();
+            
+            // 创建爆发效果
+            for (let i = 0; i < 20; i++) {
+                particles.push(new Particle(width / 2, height / 2));
+            }
+            rings.push(new Ring(width / 2, height / 2));
+        }
+        
+        // 更新模式显示
+        function updateModeDisplay() {
+            const styleName = styles[currentStyle].name;
+            const themeName = themes[currentTheme].name;
+            modeDisplay.textContent = `样式: ${styleName} | 主题: ${themeName}`;
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // 根据鼠标位置改变颜色
+            hue = (e.clientX / width) * 360;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+                hue = (mouseX / width) * 360;
+            }
+        });
+        
+        window.addEventListener('click', cycleStyle);
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                cycleStyle();
+            }
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        updateModeDisplay();
+        render();
+    </script>
+</body>
+</html>
