@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>气泡效果 | Bubbles Effect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        .stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bubbles"></canvas>
+    <div class="title">Bubbles</div>
+    <div class="stats" id="stats">气泡: 0</div>
+    <div class="info">移动鼠标推动气泡 | 点击创建气泡</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('bubbles');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const statsDisplay = document.getElementById('stats');
+        
+        let width, height;
+        let bubbles = [];
+        let mouseX = 0, mouseY = 0;
+        let time = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 气泡类
+        class Bubble {
+            constructor(x, y, size) {
+                this.x = x !== undefined ? x : Math.random() * width;
+                this.y = y !== undefined ? y : height + size;
+                this.size = size !== undefined ? size : 20 + Math.random() * 60;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = -0.5 - Math.random() * 1.5;
+                this.wobble = Math.random() * Math.PI * 2;
+                this.wobbleSpeed = 0.02 + Math.random() * 0.02;
+                this.wobbleAmount = 0.5 + Math.random() * 0.5;
+                this.alpha = 0.3 + Math.random() * 0.3;
+                this.hue = Math.random() * 60 + 180; // 蓝紫色系
+                this.life = 1;
+            }
+            
+            update() {
+                // 摇摆运动
+                this.wobble += this.wobbleSpeed;
+                this.vx += Math.sin(this.wobble) * this.wobbleAmount * 0.1;
+                
+                // 鼠标推动
+                const dx = this.x - mouseX;
+                const dy = this.y - mouseY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 150 && distance > 0) {
+                    const force = (150 - distance) / 150;
+                    this.vx += (dx / distance) * force * 0.5;
+                    this.vy += (dy / distance) * force * 0.5;
+                }
+                
+                // 浮力
+                this.vy -= 0.01;
+                
+                // 摩擦力
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+                
+                // 移动
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 边界检测
+                if (this.x < this.size) {
+                    this.x = this.size;
+                    this.vx *= -0.5;
+                }
+                if (this.x > width - this.size) {
+                    this.x = width - this.size;
+                    this.vx *= -0.5;
+                }
+                
+                // 超出顶部
+                if (this.y < -this.size * 2) {
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            draw() {
+                ctx.save();
+                
+                // 气泡主体
+                const gradient = ctx.createRadialGradient(
+                    this.x - this.size * 0.3, this.y - this.size * 0.3, 0,
+                    this.x, this.y, this.size
+                );
+                gradient.addColorStop(0, `hsla(${this.hue}, 70%, 80%, ${this.alpha * 0.5})`);
+                gradient.addColorStop(0.5, `hsla(${this.hue}, 60%, 60%, ${this.alpha * 0.3})`);
+                gradient.addColorStop(1, `hsla(${this.hue}, 50%, 50%, ${this.alpha * 0.1})`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 边缘
+                ctx.strokeStyle = `hsla(${this.hue}, 70%, 70%, ${this.alpha * 0.5})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 高光
+                const highlightGradient = ctx.createRadialGradient(
+                    this.x - this.size * 0.4, this.y - this.size * 0.4, 0,
+                    this.x - this.size * 0.4, this.y - this.size * 0.4, this.size * 0.5
+                );
+                highlightGradient.addColorStop(0, `rgba(255, 255, 255, ${this.alpha * 0.8})`);
+                highlightGradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(this.x - this.size * 0.4, this.y - this.size * 0.4, this.size * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = highlightGradient;
+                ctx.fill();
+                
+                // 底部反光
+                ctx.beginPath();
+                ctx.arc(this.x + this.size * 0.2, this.y + this.size * 0.3, this.size * 0.2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha * 0.3})`;
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        // 绘制背景
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, width, height);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(0.5, '#764ba2');
+            gradient.addColorStop(1, '#f093fb');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 创建气泡
+        function createBubble(x, y) {
+            const size = 20 + Math.random() * 60;
+            bubbles.push(new Bubble(x, y, size));
+        }
+        
+        // 随机生成气泡
+        function randomBubble() {
+            if (bubbles.length < 50 && Math.random() > 0.95) {
+                const x = Math.random() * width;
+                const size = 20 + Math.random() * 60;
+                bubbles.push(new Bubble(x, height + size, size));
+            }
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 绘制背景
+            drawBackground();
+            
+            // 随机生成气泡
+            randomBubble();
+            
+            // 更新和绘制气泡
+            bubbles = bubbles.filter(bubble => {
+                const alive = bubble.update();
+                if (alive) bubble.draw();
+                return alive;
+            });
+            
+            // 更新统计
+            statsDisplay.textContent = `气泡: ${bubbles.length}`;
+            
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 初始化气泡
+        function initBubbles() {
+            bubbles = [];
+            for (let i = 0; i < 30; i++) {
+                const size = 20 + Math.random() * 60;
+                bubbles.push(new Bubble(
+                    Math.random() * width,
+                    Math.random() * height,
+                    size
+                ));
+            }
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            // 创建多个气泡
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    createBubble(
+                        e.clientX + (Math.random() - 0.5) * 50,
+                        e.clientY + (Math.random() - 0.5) * 50
+                    );
+                }, i * 50);
+            }
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        createBubble(
+                            e.touches[0].clientX + (Math.random() - 0.5) * 50,
+                            e.touches[0].clientY + (Math.random() - 0.5) * 50
+                        );
+                    }, i * 50);
+                }
+            }
+        });
+        
+        // 初始化
+        resize();
+        initBubbles();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
