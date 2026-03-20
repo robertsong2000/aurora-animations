@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D地形 | 3D Terrain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            cursor: grab;
+        }
+        
+        canvas:active {
+            cursor: grabbing;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.15);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        .stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="terrain"></canvas>
+    <div class="title">Terrain</div>
+    <div class="stats" id="stats">顶点: 0<br>三角形: 0</div>
+    <div class="info">拖动旋转视角 | 滚轮缩放 | 双击重置</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('terrain');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const statsDisplay = document.getElementById('stats');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let isDragging = false;
+        let lastMouseX = 0, lastMouseY = 0;
+        let rotationX = 0.5;
+        let rotationY = 0;
+        let scale = 1;
+        let time = 0;
+        
+        // 地形网格
+        const terrain = {
+            rows: 50,
+            cols: 50,
+            points: [],
+            colors: []
+        };
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 生成地形高度
+        function generateTerrain() {
+            terrain.points = [];
+            
+            for (let row = 0; row < terrain.rows; row++) {
+                terrain.points[row] = [];
+                
+                for (let col = 0; col < terrain.cols; col++) {
+                    const x = (col / (terrain.cols - 1)) - 0.5;
+                    const z = (row / (terrain.rows - 1)) - 0.5;
+                    
+                    // 多层噪声叠加
+                    let y = 0;
+                    
+                    // 大尺度山丘
+                    y += Math.sin(x * 5 + time * 0.001) * 0.15;
+                    y += Math.sin(z * 5 + time * 0.0012) * 0.15;
+                    
+                    // 中尺度起伏
+                    y += Math.sin(x * 10 + z * 10 + time * 0.002) * 0.08;
+                    
+                    // 小尺度细节
+                    y += Math.sin(x * 20) * Math.sin(z * 20) * 0.03;
+                    
+                    // 随机噪声
+                    y += Math.sin(x * 30 + row * 0.5) * Math.cos(z * 30 + col * 0.5) * 0.02;
+                    
+                    terrain.points[row][col] = { x: x * 2, y: y, z: z * 2 };
+                }
+            }
+        }
+        
+        // 获取高度对应的颜色
+        function getTerrainColor(y) {
+            if (y < -0.1) {
+                // 深水
+                return { r: 30, g: 60, b: 120 };
+            } else if (y < 0) {
+                // 浅水
+                return { r: 50, g: 100, b: 150 };
+            } else if (y < 0.05) {
+                // 沙滩
+                return { r: 210, g: 180, b: 140 };
+            } else if (y < 0.15) {
+                // 草地
+                return { r: 80, g: 140, b: 60 };
+            } else if (y < 0.25) {
+                // 森林
+                return { r: 40, g: 90, b: 40 };
+            } else if (y < 0.35) {
+                // 岩石
+                return { r: 100, g: 90, b: 80 };
+            } else {
+                // 雪山
+                return { r: 240, g: 245, b: 250 };
+            }
+        }
+        
+        // 3D旋转和投影
+        function project(point) {
+            let x = point.x;
+            let y = point.y;
+            let z = point.z;
+            
+            // 绕X轴旋转
+            let cosX = Math.cos(rotationX);
+            let sinX = Math.sin(rotationX);
+            let y1 = y * cosX - z * sinX;
+            let z1 = y * sinX + z * cosX;
+            
+            // 绕Y轴旋转
+            let cosY = Math.cos(rotationY);
+            let sinY = Math.sin(rotationY);
+            let x2 = x * cosY + z1 * sinY;
+            let z2 = -x * sinY + z1 * cosY;
+            
+            // 透视投影
+            const perspective = 3;
+            const scale3D = perspective / (perspective + z2);
+            
+            return {
+                x: width / 2 + x2 * scale3D * scale * 300,
+                y: height / 2 - y1 * scale3D * scale * 300,
+                z: z2,
+                scale: scale3D
+            };
+        }
+        
+        // 绘制地形
+        function drawTerrain() {
+            const triangles = [];
+            
+            // 生成三角形
+            for (let row = 0; row < terrain.rows - 1; row++) {
+                for (let col = 0; col < terrain.cols - 1; col++) {
+                    const p1 = terrain.points[row][col];
+                    const p2 = terrain.points[row][col + 1];
+                    const p3 = terrain.points[row + 1][col];
+                    const p4 = terrain.points[row + 1][col + 1];
+                    
+                    // 计算中心深度用于排序
+                    const avgY = (p1.y + p2.y + p3.y) / 3;
+                    const avgZ = (p1.z + p2.z + p3.z) / 3;
+                    
+                    // 三角形1: p1, p2, p3
+                    triangles.push({
+                        points: [project(p1), project(p2), project(p3)],
+                        color: getTerrainColor((p1.y + p2.y + p3.y) / 3),
+                        depth: avgZ
+                    });
+                    
+                    // 三角形2: p2, p4, p3
+                    triangles.push({
+                        points: [project(p2), project(p4), project(p3)],
+                        color: getTerrainColor((p2.y + p4.y + p3.y) / 3),
+                        depth: avgZ
+                    });
+                }
+            }
+            
+            // 按深度排序（画家算法）
+            triangles.sort((a, b) => b.depth - a.depth);
+            
+            // 绘制三角形
+            triangles.forEach(tri => {
+                ctx.beginPath();
+                ctx.moveTo(tri.points[0].x, tri.points[0].y);
+                ctx.lineTo(tri.points[1].x, tri.points[1].y);
+                ctx.lineTo(tri.points[2].x, tri.points[2].y);
+                ctx.closePath();
+                
+                // 填充颜色
+                const light = 0.5 + tri.depth * 0.3;
+                ctx.fillStyle = `rgb(${tri.color.r * light}, ${tri.color.g * light}, ${tri.color.b * light})`;
+                ctx.fill();
+                
+                // 网格线
+                ctx.strokeStyle = `rgba(0, 0, 0, 0.1)`;
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+            });
+            
+            return triangles.length;
+        }
+        
+        // 绘制水面
+        function drawWater() {
+            ctx.fillStyle = 'rgba(30, 60, 120, 0.6)';
+            ctx.beginPath();
+            
+            // 绘制水面四边形
+            const waterLevel = -0.1;
+            const corners = [
+                { x: -1, y: waterLevel, z: -1 },
+                { x: 1, y: waterLevel, z: -1 },
+                { x: 1, y: waterLevel, z: 1 },
+                { x: -1, y: waterLevel, z: 1 }
+            ];
+            
+            const projected = corners.map(p => project(p));
+            
+            ctx.beginPath();
+            ctx.moveTo(projected[0].x, projected[0].y);
+            projected.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.closePath();
+            
+            // 半透明水面
+            const gradient = ctx.createLinearGradient(
+                projected[0].x, projected[0].y,
+                projected[2].x, projected[2].y
+            );
+            gradient.addColorStop(0, 'rgba(30, 80, 120, 0.5)');
+            gradient.addColorStop(0.5, 'rgba(50, 100, 150, 0.6)');
+            gradient.addColorStop(1, 'rgba(30, 80, 120, 0.5)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+        
+        // 绘制天空
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#1a1a3a');
+            gradient.addColorStop(0.3, '#2a3a5a');
+            gradient.addColorStop(0.6, '#4a5a7a');
+            gradient.addColorStop(1, '#6a7a9a');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制云朵
+            drawClouds();
+        }
+        
+        // 绘制云朵
+        function drawClouds() {
+            const clouds = [
+                { x: -0.5, y: 0.8, z: -0.3 },
+                { x: 0.3, y: 0.9, z: -0.5 },
+                { x: 0.7, y: 0.75, z: -0.2 }
+            ];
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            
+            clouds.forEach(cloud => {
+                const p = project(cloud);
+                if (p.z < 1) {
+                    const size = 50 * p.scale;
+                    
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        ctx.arc(
+                            p.x + i * size * 0.5,
+                            p.y + Math.sin(i) * size * 0.2,
+                            size * (0.8 + Math.random() * 0.4),
+                            0,
+                            Math.PI * 2
+                        );
+                        ctx.fill();
+                    }
+                }
+            });
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            
+            // 绘制天空
+            drawSky();
+            
+            // 更新地形
+            generateTerrain();
+            
+            // 绘制水面
+            drawWater();
+            
+            // 绘制地形
+            const triangleCount = drawTerrain();
+            
+            // 更新统计
+            const vertexCount = terrain.rows * terrain.cols;
+            statsDisplay.innerHTML = `顶点: ${vertexCount}<br>三角形: ${triangleCount}`;
+            
+            // 自动旋转
+            if (!isDragging) {
+                rotationY += 0.002;
+            }
+            
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const deltaY = e.clientY - lastMouseY;
+                
+                rotationY += deltaX * 0.01;
+                rotationX += deltaY * 0.01;
+                
+                // 限制X轴旋转范围
+                rotationX = Math.max(0.1, Math.min(1.2, rotationX));
+                
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+        
+        // 触摸事件
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                isDragging = true;
+                lastMouseX = e.touches[0].clientX;
+                lastMouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1 && isDragging) {
+                e.preventDefault();
+                const deltaX = e.touches[0].clientX - lastMouseX;
+                const deltaY = e.touches[0].clientY - lastMouseY;
+                
+                rotationY += deltaX * 0.01;
+                rotationX += deltaY * 0.01;
+                rotationX = Math.max(0.1, Math.min(1.2, rotationX));
+                
+                lastMouseX = e.touches[0].clientX;
+                lastMouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+        
+        // 滚轮缩放
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.001;
+            scale *= (1 - e.deltaY * zoomSpeed);
+            scale = Math.max(0.5, Math.min(2, scale));
+        });
+        
+        // 双击重置
+        canvas.addEventListener('dblclick', () => {
+            rotationX = 0.5;
+            rotationY = 0;
+            scale = 1;
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        generateTerrain();
+        render();
+    </script>
+</body>
+</html>
