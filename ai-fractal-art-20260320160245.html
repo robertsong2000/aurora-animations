@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分形艺术 | Fractal Art</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .mode {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 10;
+            font-family: monospace;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="fractal"></canvas>
+    <div class="mode" id="mode">分形: 树 | 深度: 10</div>
+    <div class="info">移动鼠标改变参数 | 点击切换分形类型</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('fractal');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const modeDisplay = document.getElementById('mode');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let time = 0;
+        let currentFractal = 0;
+        let animationPhase = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 分形类型
+        const fractalTypes = ['树', '谢尔宾斯基三角', '科赫雪花', '曼德博', '朱利亚集'];
+        
+        // 颜色主题
+        const colors = {
+            tree: ['#4a2c2a', '#6b4423', '#8b5a2b', '#a0522d', '#228b22', '#32cd32'],
+            sierpinski: ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'],
+            koch: ['#a29bfe', '#74b9ff', '#00cec9', '#55efc4', '#fdcb6e'],
+            mandelbrot: ['#e17055', '#fdcb6e', '#00b894', '#00cec9', '#0984e3'],
+            julia: ['#fd79a8', '#a29bfe', '#74b9ff', '#81ecec', '#ffeaa7']
+        };
+        
+        // 绘制分形树
+        function drawFractalTree(x, y, length, angle, depth, maxDepth) {
+            if (depth === 0 || length < 2) return;
+            
+            const endX = x + Math.cos(angle) * length;
+            const endY = y + Math.sin(angle) * length;
+            
+            // 根据深度选择颜色
+            const colorIndex = Math.floor((maxDepth - depth) / maxDepth * colors.tree.length);
+            ctx.strokeStyle = colors.tree[Math.min(colorIndex, colors.tree.length - 1)];
+            ctx.lineWidth = depth * 0.8;
+            
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            // 鼠标影响分支角度
+            const mouseInfluence = (mouseX / width - 0.5) * 0.3;
+            const branchAngle = Math.PI / 6 + mouseInfluence;
+            
+            // 动画效果
+            const animOffset = Math.sin(animationPhase + depth * 0.5) * 0.05;
+            
+            // 递归绘制左右分支
+            drawFractalTree(endX, endY, length * 0.7, angle - branchAngle + animOffset, depth - 1, maxDepth);
+            drawFractalTree(endX, endY, length * 0.7, angle + branchAngle + animOffset, depth - 1, maxDepth);
+        }
+        
+        // 绘制谢尔宾斯基三角形
+        function drawSierpinskiTriangle(x1, y1, x2, y2, x3, y3, depth) {
+            if (depth === 0) {
+                const colorIndex = Math.floor(Math.random() * colors.sierpinski.length);
+                ctx.fillStyle = colors.sierpinski[colorIndex];
+                ctx.globalAlpha = 0.8;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.lineTo(x3, y3);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.globalAlpha = 1;
+                return;
+            }
+            
+            // 计算中点
+            const mx1 = (x1 + x2) / 2;
+            const my1 = (y1 + y2) / 2;
+            const mx2 = (x2 + x3) / 2;
+            const my2 = (y2 + y3) / 2;
+            const mx3 = (x3 + x1) / 2;
+            const my3 = (y3 + y1) / 2;
+            
+            // 递归绘制三个小三角形
+            drawSierpinskiTriangle(x1, y1, mx1, my1, mx3, my3, depth - 1);
+            drawSierpinskiTriangle(mx1, my1, x2, y2, mx2, my2, depth - 1);
+            drawSierpinskiTriangle(mx3, my3, mx2, my2, x3, y3, depth - 1);
+        }
+        
+        // 绘制科赫雪花
+        function drawKochCurve(x1, y1, x2, y2, depth) {
+            if (depth === 0) {
+                const colorIndex = Math.floor(Math.random() * colors.koch.length);
+                ctx.strokeStyle = colors.koch[colorIndex];
+                ctx.lineWidth = 2;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                return;
+            }
+            
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            
+            const x3 = x1 + dx / 3;
+            const y3 = y1 + dy / 3;
+            
+            const x5 = x1 + dx * 2 / 3;
+            const y5 = y1 + dy * 2 / 3;
+            
+            const angle = Math.atan2(dy, dx) - Math.PI / 3;
+            const len = Math.sqrt(dx * dx + dy * dy) / 3;
+            
+            const x4 = x3 + Math.cos(angle) * len;
+            const y4 = y3 + Math.sin(angle) * len;
+            
+            // 鼠标影响
+            const mouseInfluence = (mouseY / height - 0.5) * 0.2;
+            const adjustedX4 = x4 + mouseInfluence * 20;
+            
+            drawKochCurve(x1, y1, x3, y3, depth - 1);
+            drawKochCurve(x3, y3, adjustedX4, y4, depth - 1);
+            drawKochCurve(adjustedX4, y4, x5, y5, depth - 1);
+            drawKochCurve(x5, y5, x2, y2, depth - 1);
+        }
+        
+        // 绘制曼德博集合
+        function drawMandelbrot() {
+            const maxIterations = 100;
+            const zoom = 1 + (mouseX / width) * 2;
+            const offsetX = -0.5 + (mouseY / height - 0.5) * 0.5;
+            
+            const imageData = ctx.createImageData(width, height);
+            
+            for (let px = 0; px < width; px++) {
+                for (let py = 0; py < height; py++) {
+                    const x0 = (px - width / 2) / (width / 4) / zoom + offsetX;
+                    const y0 = (py - height / 2) / (height / 4) / zoom;
+                    
+                    let x = 0, y = 0;
+                    let iteration = 0;
+                    
+                    while (x * x + y * y <= 4 && iteration < maxIterations) {
+                        const xTemp = x * x - y * y + x0;
+                        y = 2 * x * y + y0;
+                        x = xTemp;
+                        iteration++;
+                    }
+                    
+                    const pixelIndex = (py * width + px) * 4;
+                    
+                    if (iteration === maxIterations) {
+                        imageData.data[pixelIndex] = 0;
+                        imageData.data[pixelIndex + 1] = 0;
+                        imageData.data[pixelIndex + 2] = 0;
+                    } else {
+                        const hue = (iteration / maxIterations) * 360;
+                        const rgb = hslToRgb(hue / 360, 0.8, 0.5);
+                        
+                        imageData.data[pixelIndex] = rgb.r;
+                        imageData.data[pixelIndex + 1] = rgb.g;
+                        imageData.data[pixelIndex + 2] = rgb.b;
+                    }
+                    
+                    imageData.data[pixelIndex + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // 绘制朱利亚集
+        function drawJuliaSet() {
+            const maxIterations = 100;
+            const cReal = -0.7 + Math.sin(animationPhase * 0.02) * 0.1;
+            const cImag = 0.27015 + Math.cos(animationPhase * 0.02) * 0.1;
+            
+            const zoom = 1 + (mouseX / width) * 0.5;
+            
+            const imageData = ctx.createImageData(width, height);
+            
+            for (let px = 0; px < width; px++) {
+                for (let py = 0; py < height; py++) {
+                    let x = (px - width / 2) / (width / 4) / zoom;
+                    let y = (py - height / 2) / (height / 4) / zoom;
+                    
+                    let iteration = 0;
+                    
+                    while (x * x + y * y <= 4 && iteration < maxIterations) {
+                        const xTemp = x * x - y * y + cReal;
+                        y = 2 * x * y + cImag;
+                        x = xTemp;
+                        iteration++;
+                    }
+                    
+                    const pixelIndex = (py * width + px) * 4;
+                    
+                    if (iteration === maxIterations) {
+                        imageData.data[pixelIndex] = 0;
+                        imageData.data[pixelIndex + 1] = 0;
+                        imageData.data[pixelIndex + 2] = 0;
+                    } else {
+                        const hue = (iteration / maxIterations) * 360 + (mouseY / height) * 180;
+                        const rgb = hslToRgb(hue / 360, 0.9, 0.5);
+                        
+                        imageData.data[pixelIndex] = rgb.r;
+                        imageData.data[pixelIndex + 1] = rgb.g;
+                        imageData.data[pixelIndex + 2] = rgb.b;
+                    }
+                    
+                    imageData.data[pixelIndex + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // HSL转RGB
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return {
+                r: Math.round(r * 255),
+                g: Math.round(g * 255),
+                b: Math.round(b * 255)
+            };
+        }
+        
+        // 绘制当前分形
+        function drawCurrentFractal() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            const depth = 10;
+            
+            switch (currentFractal) {
+                case 0: // 分形树
+                    modeDisplay.textContent = `分形: 树 | 深度: ${depth}`;
+                    drawFractalTree(width / 2, height, height / 3, -Math.PI / 2, depth, depth);
+                    break;
+                    
+                case 1: // 谢尔宾斯基三角
+                    const triangleDepth = 7;
+                    modeDisplay.textContent = `分形: 谢尔宾斯基三角 | 深度: ${triangleDepth}`;
+                    const size = Math.min(width, height) * 0.8;
+                    const centerX = width / 2;
+                    const centerY = height / 2;
+                    
+                    drawSierpinskiTriangle(
+                        centerX, centerY - size / 2,
+                        centerX - size / 2, centerY + size / 2,
+                        centerX + size / 2, centerY + size / 2,
+                        triangleDepth
+                    );
+                    break;
+                    
+                case 2: // 科赫雪花
+                    const kochDepth = 5;
+                    modeDisplay.textContent = `分形: 科赫雪花 | 深度: ${kochDepth}`;
+                    const snowSize = Math.min(width, height) * 0.4;
+                    const cx = width / 2;
+                    const cy = height / 2;
+                    
+                    // 六角形雪花
+                    for (let i = 0; i < 6; i++) {
+                        const angle1 = (i / 6) * Math.PI * 2;
+                        const angle2 = ((i + 1) / 6) * Math.PI * 2;
+                        
+                        const x1 = cx + Math.cos(angle1) * snowSize;
+                        const y1 = cy + Math.sin(angle1) * snowSize;
+                        const x2 = cx + Math.cos(angle2) * snowSize;
+                        const y2 = cy + Math.sin(angle2) * snowSize;
+                        
+                        drawKochCurve(x1, y1, x2, y2, kochDepth);
+                    }
+                    break;
+                    
+                case 3: // 曼德博集合
+                    modeDisplay.textContent = `分形: 曼德博集合 | 缩放: ${1 + (mouseX / width) * 2}`;
+                    drawMandelbrot();
+                    break;
+                    
+                case 4: // 朱利亚集
+                    modeDisplay.textContent = `分形: 朱利亚集 | 动态: 开`;
+                    drawJuliaSet();
+                    break;
+            }
+        }
+        
+        // 主渲染循环
+        function render() {
+            animationPhase++;
+            
+            // 绘制分形
+            drawCurrentFractal();
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('click', () => {
+            currentFractal = (currentFractal + 1) % fractalTypes.length;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                currentFractal = (currentFractal + 1) % fractalTypes.length;
+            }
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
