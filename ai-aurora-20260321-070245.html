@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极光效果 - Aurora Borealis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0a0a1a 0%, #1a1a3a 50%, #0a0a1a 100%);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 255, 150, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="aurora"></canvas>
+    <div class="info">
+        <span>🌌 极光效果</span>
+        <span>🖱️ 移动鼠标 - 引导极光流向</span>
+        <span>👆 点击 - 极光爆发</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            auroraStrips: 8,
+            particlesPerStrip: 50,
+            colors: [
+                { r: 0, g: 255, b: 150 },    // 青绿
+                { r: 0, g: 200, b: 255 },    // 天蓝
+                { r: 100, g: 0, b: 255 },    // 紫色
+                { r: 0, g: 255, b: 200 },    // 青色
+                { r: 50, g: 255, b: 100 },   // 绿色
+                { r: 150, g: 0, b: 255 },    // 品红
+            ]
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('aurora');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function noise(x, y, t) {
+            return Math.sin(x * 0.01 + t) * Math.cos(y * 0.01 + t * 0.5) * 
+                   Math.sin((x + y) * 0.005 + t * 0.3);
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function lerpColor(c1, c2, t) {
+            return {
+                r: Math.floor(lerp(c1.r, c2.r, t)),
+                g: Math.floor(lerp(c1.g, c2.g, t)),
+                b: Math.floor(lerp(c1.b, c2.b, t))
+            };
+        }
+
+        function toRgba(color, alpha) {
+            return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+        }
+
+        // ============ 极光粒子类 ============
+        class AuroraParticle {
+            constructor(stripIndex, particleIndex, totalParticles) {
+                this.stripIndex = stripIndex;
+                this.particleIndex = particleIndex;
+                this.totalParticles = totalParticles;
+                this.baseX = (particleIndex / totalParticles) * width;
+                this.x = this.baseX;
+                this.y = 0;
+                this.baseY = random(height * 0.1, height * 0.5);
+                this.size = random(20, 60);
+                this.color = CONFIG.colors[stripIndex % CONFIG.colors.length];
+                this.phase = random(0, Math.PI * 2);
+                this.speed = random(0.5, 1.5);
+                this.amplitude = random(30, 80);
+                this.verticalOffset = random(-20, 20);
+            }
+
+            update(time, mouseX, mouseY, mouseInfluence) {
+                // 基础波动
+                const wave1 = Math.sin(this.baseX * 0.003 + time * 0.001 * this.speed + this.phase) * this.amplitude;
+                const wave2 = Math.cos(this.baseX * 0.002 + time * 0.0008 * this.speed) * this.amplitude * 0.5;
+                const wave3 = noise(this.baseX, time * 0.5, time * 0.0005) * 40;
+
+                // 鼠标影响
+                const distToMouse = Math.abs(this.baseX - mouseX);
+                const influence = Math.max(0, 1 - distToMouse / 300) * mouseInfluence;
+                const mouseEffect = influence * (mouseY - height * 0.3) * 0.3;
+
+                this.x = this.baseX + wave1 * 0.3;
+                this.y = this.baseY + wave2 + wave3 + this.verticalOffset + mouseEffect;
+                
+                // 动态透明度
+                this.opacity = 0.15 + 0.15 * Math.sin(time * 0.002 + this.phase);
+            }
+
+            draw() {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size
+                );
+                
+                gradient.addColorStop(0, toRgba(this.color, this.opacity * 0.8));
+                gradient.addColorStop(0.4, toRgba(this.color, this.opacity * 0.4));
+                gradient.addColorStop(1, toRgba(this.color, 0));
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+
+        // ============ 极光带类 ============
+        class AuroraStrip {
+            constructor(index) {
+                this.index = index;
+                this.particles = [];
+                this.color = CONFIG.colors[index % CONFIG.colors.length];
+                this.yOffset = index * 30;
+                
+                for (let i = 0; i < CONFIG.particlesPerStrip; i++) {
+                    this.particles.push(new AuroraParticle(index, i, CONFIG.particlesPerStrip));
+                }
+            }
+
+            update(time, mouseX, mouseY, mouseInfluence) {
+                this.particles.forEach(p => p.update(time, mouseX, mouseY, mouseInfluence));
+            }
+
+            draw() {
+                // 绘制连接的极光带
+                ctx.beginPath();
+                ctx.moveTo(this.particles[0].x, this.particles[0].y + this.yOffset);
+                
+                for (let i = 1; i < this.particles.length; i++) {
+                    const p = this.particles[i];
+                    const prevP = this.particles[i - 1];
+                    const cpX = (prevP.x + p.x) / 2;
+                    const cpY = (prevP.y + p.y) / 2 + this.yOffset;
+                    ctx.quadraticCurveTo(prevP.x, prevP.y + this.yOffset, cpX, cpY);
+                }
+
+                // 创建渐变
+                const gradient = ctx.createLinearGradient(0, 0, width, 0);
+                for (let i = 0; i <= 10; i++) {
+                    const t = i / 10;
+                    const colorIdx = Math.floor(t * (CONFIG.colors.length - 1));
+                    const nextColorIdx = Math.min(colorIdx + 1, CONFIG.colors.length - 1);
+                    const localT = (t * (CONFIG.colors.length - 1)) % 1;
+                    const color = lerpColor(CONFIG.colors[colorIdx], CONFIG.colors[nextColorIdx], localT);
+                    gradient.addColorStop(t, toRgba(color, 0.1));
+                }
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 80;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.shadowColor = toRgba(this.color, 0.5);
+                ctx.shadowBlur = 30;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // 绘制粒子
+                this.particles.forEach(p => {
+                    p.y += this.yOffset;
+                    p.draw();
+                    p.y -= this.yOffset;
+                });
+            }
+        }
+
+        // ============ 星星类 ============
+        class Star {
+            constructor() {
+                this.x = random(0, width);
+                this.y = random(0, height * 0.6);
+                this.size = random(0.5, 2);
+                this.twinkleSpeed = random(0.01, 0.05);
+                this.phase = random(0, Math.PI * 2);
+                this.opacity = random(0.3, 1);
+            }
+
+            update(time) {
+                this.currentOpacity = this.opacity * (0.5 + 0.5 * Math.sin(time * this.twinkleSpeed + this.phase));
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.currentOpacity})`;
+                ctx.fill();
+            }
+        }
+
+        // ============ 极光爆发粒子 ============
+        class BurstParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(0, Math.PI * 2);
+                const speed = random(1, 5);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed - 2;
+                this.size = random(30, 80);
+                this.color = CONFIG.colors[Math.floor(random(0, CONFIG.colors.length))];
+                this.life = 1;
+                this.decay = random(0.005, 0.015);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.02;
+                this.vx *= 0.99;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * this.life
+                );
+                
+                gradient.addColorStop(0, toRgba(this.color, this.life * 0.6));
+                gradient.addColorStop(0.5, toRgba(this.color, this.life * 0.3));
+                gradient.addColorStop(1, toRgba(this.color, 0));
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 初始化 ============
+        const auroraStrips = [];
+        const stars = [];
+        const burstParticles = [];
+
+        for (let i = 0; i < CONFIG.auroraStrips; i++) {
+            auroraStrips.push(new AuroraStrip(i));
+        }
+
+        for (let i = 0; i < 200; i++) {
+            stars.push(new Star());
+        }
+
+        // ============ 鼠标交互 ============
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let mouseInfluence = 0;
+        let targetMouseInfluence = 0;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            targetMouseInfluence = 1;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            targetMouseInfluence = 0;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 极光爆发
+            for (let i = 0; i < 20; i++) {
+                burstParticles.push(new BurstParticle(e.clientX, e.clientY));
+            }
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制地平线 ============
+        function drawHorizon() {
+            const gradient = ctx.createLinearGradient(0, height * 0.7, 0, height);
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(0.3, 'rgba(10, 20, 40, 0.3)');
+            gradient.addColorStop(1, 'rgba(5, 10, 20, 0.8)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, height * 0.7, width, height * 0.3);
+
+            // 山脉剪影
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            
+            let x = 0;
+            while (x < width) {
+                const peakHeight = height * 0.85 + noise(x, 0, 0) * 30;
+                ctx.lineTo(x, peakHeight);
+                x += 20;
+            }
+            
+            ctx.lineTo(width, height);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(5, 10, 25, 0.9)';
+            ctx.fill();
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 平滑鼠标影响
+            mouseInfluence = lerp(mouseInfluence, targetMouseInfluence, 0.05);
+
+            // 绘制星星
+            stars.forEach(star => {
+                star.update(time);
+                star.draw();
+            });
+
+            // 更新和绘制极光
+            auroraStrips.forEach(strip => {
+                strip.update(time, mouseX, mouseY, mouseInfluence);
+            });
+
+            // 按层次绘制极光
+            auroraStrips.forEach(strip => strip.draw());
+
+            // 绘制地平线
+            drawHorizon();
+
+            // 更新和绘制爆发粒子
+            for (let i = burstParticles.length - 1; i >= 0; i--) {
+                burstParticles[i].update();
+                burstParticles[i].draw();
+                if (burstParticles[i].isDead()) {
+                    burstParticles.splice(i, 1);
+                }
+            }
+
+            // 限制粒子数量
+            if (burstParticles.length > 100) {
+                burstParticles.splice(0, burstParticles.length - 100);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+    </script>
+</body>
+</html>
