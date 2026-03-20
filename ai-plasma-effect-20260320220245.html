@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>等离子体效果 | Plasma Effect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.1);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 20px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+        
+        .mode {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 10;
+            font-family: monospace;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="plasma"></canvas>
+    <div class="title">Plasma</div>
+    <div class="mode" id="mode">模式: 经典 | 色彩: 彩虹</div>
+    <div class="info">移动鼠标改变颜色 | 点击切换模式</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('plasma');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const modeDisplay = document.getElementById('mode');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let time = 0;
+        let currentMode = 0;
+        let currentColorScheme = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 模式
+        const modes = ['经典', '波动', '螺旋', '脉动', '混合'];
+        
+        // 颜色方案
+        const colorSchemes = ['彩虹', '火焰', '海洋', '森林', '紫罗兰', '金属'];
+        
+        // 计算等离子体值
+        function plasma(x, y, t) {
+            let value = 0;
+            
+            switch (currentMode) {
+                case 0: // 经典
+                    value += Math.sin(x / 16 + t);
+                    value += Math.sin((y / 16 + t) / 2);
+                    value += Math.sin((x + y) / 32 + t);
+                    value += Math.sin(Math.sqrt(x * x + y * y) / 16 + t);
+                    break;
+                    
+                case 1: // 波动
+                    value += Math.sin(x / 20 * Math.cos(t / 10));
+                    value += Math.cos(y / 20 * Math.sin(t / 15));
+                    value += Math.sin((x + y) / 25 + t / 5);
+                    value += Math.cos(Math.sqrt(x * x + y * y) / 20);
+                    break;
+                    
+                case 2: // 螺旋
+                    const angle = Math.atan2(y - height/2, x - width/2);
+                    const dist = Math.sqrt((x - width/2) ** 2 + (y - height/2) ** 2);
+                    value += Math.sin(angle * 5 + dist / 30 - t);
+                    value += Math.cos(dist / 20 + t);
+                    value += Math.sin(angle * 3 - t / 2);
+                    break;
+                    
+                case 3: // 脉动
+                    const cx = width / 2 + Math.sin(t / 20) * 100;
+                    const cy = height / 2 + Math.cos(t / 25) * 100;
+                    const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+                    value += Math.sin(d / 20 - t / 3);
+                    value += Math.cos(d / 30 + t / 5);
+                    value += Math.sin((x + y) / 40 + t / 4);
+                    break;
+                    
+                case 4: // 混合
+                    value += Math.sin(x / 25 + Math.sin(t / 15) * 5);
+                    value += Math.cos(y / 25 + Math.cos(t / 20) * 5);
+                    value += Math.sin((x * y) / 10000 + t / 8);
+                    value += Math.cos(Math.sqrt(x * x + y * y) / 25);
+                    value += Math.sin(Math.atan2(y, x) * 4 + t / 6);
+                    break;
+            }
+            
+            // 鼠标影响
+            const md = Math.sqrt((x - mouseX) ** 2 + (y - mouseY) ** 2);
+            value += Math.sin(md / 50) * 0.5;
+            
+            return value / 4;
+        }
+        
+        // 获取颜色
+        function getColor(value, x, y) {
+            // 归一化到 0-1
+            const normalized = (value + 1) / 2;
+            
+            let r, g, b;
+            
+            switch (currentColorScheme) {
+                case 0: // 彩虹
+                    const hue = normalized * 360;
+                    [r, g, b] = hslToRgb(hue / 360, 0.8, 0.5);
+                    break;
+                    
+                case 1: // 火焰
+                    r = Math.floor(255 * Math.min(1, normalized * 2));
+                    g = Math.floor(255 * Math.max(0, Math.min(1, normalized * 2 - 0.5)));
+                    b = Math.floor(255 * Math.max(0, normalized - 0.8));
+                    break;
+                    
+                case 2: // 海洋
+                    r = Math.floor(50 * normalized);
+                    g = Math.floor(150 * normalized);
+                    b = Math.floor(255 * normalized);
+                    break;
+                    
+                case 3: // 森林
+                    r = Math.floor(100 * normalized);
+                    g = Math.floor(255 * normalized);
+                    b = Math.floor(100 * normalized);
+                    break;
+                    
+                case 4: // 紫罗兰
+                    r = Math.floor(200 * normalized);
+                    g = Math.floor(50 * normalized);
+                    b = Math.floor(255 * normalized);
+                    break;
+                    
+                case 5: // 金属
+                    const metal = Math.sin(normalized * Math.PI * 4) * 0.5 + 0.5;
+                    r = Math.floor(200 * metal);
+                    g = Math.floor(200 * metal);
+                    b = Math.floor(220 * metal);
+                    break;
+            }
+            
+            return { r, g, b };
+        }
+        
+        // HSL转RGB
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+        
+        // 渲染等离子体（低分辨率优化）
+        function renderPlasma() {
+            const resolution = 4; // 降低分辨率提升性能
+            const imageData = ctx.createImageData(width, height);
+            
+            for (let y = 0; y < height; y += resolution) {
+                for (let x = 0; x < width; x += resolution) {
+                    const value = plasma(x, y, time);
+                    const color = getColor(value, x, y);
+                    
+                    // 填充块
+                    for (let dy = 0; dy < resolution && y + dy < height; dy++) {
+                        for (let dx = 0; dx < resolution && x + dx < width; dx++) {
+                            const index = ((y + dy) * width + (x + dx)) * 4;
+                            imageData.data[index] = color.r;
+                            imageData.data[index + 1] = color.g;
+                            imageData.data[index + 2] = color.b;
+                            imageData.data[index + 3] = 255;
+                        }
+                    }
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 渲染等离子体
+            renderPlasma();
+            
+            // 更新显示
+            modeDisplay.textContent = `模式: ${modes[currentMode]} | 色彩: ${colorSchemes[currentColorScheme]}`;
+            
+            time += 0.5;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('click', () => {
+            currentMode = (currentMode + 1) % modes.length;
+            currentColorScheme = (currentColorScheme + 1) % colorSchemes.length;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                currentMode = (currentMode + 1) % modes.length;
+                currentColorScheme = (currentColorScheme + 1) % colorSchemes.length;
+            }
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
