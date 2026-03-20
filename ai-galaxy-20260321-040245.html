@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>银河系 - Galaxy Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(100, 150, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="galaxy"></canvas>
+    <div class="info">
+        <span>🌌 银河系动画</span>
+        <span>🖱️ 移动鼠标 - 产生星尘轨迹</span>
+        <span>👆 点击 - 超新星爆发</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            stars: 800,           // 背景星星数量
+            dustParticles: 50,    // 鼠标移动产生的星尘
+            supernovaParticles: 100, // 超新星爆发粒子
+            spiralArms: 4,        // 银河旋臂数量
+            rotationSpeed: 0.0002, // 银河旋转速度
+            colors: {
+                core: ['#FFE4B5', '#FFD700', '#FFA500'],
+                arms: ['#6B8DD6', '#7B68EE', '#9370DB', '#4169E1'],
+                dust: ['#87CEEB', '#B0E0E6', '#ADD8E6', '#E6E6FA']
+            }
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('galaxy');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor(colors) {
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        // ============ 星星类 ============
+        class Star {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = random(0, width);
+                this.y = random(0, height);
+                this.size = random(0.5, 2);
+                this.opacity = random(0.3, 1);
+                this.twinkleSpeed = random(0.01, 0.03);
+                this.twinklePhase = random(0, Math.PI * 2);
+            }
+
+            update(time) {
+                this.twinklePhase += this.twinkleSpeed;
+                this.currentOpacity = this.opacity * (0.5 + 0.5 * Math.sin(this.twinklePhase));
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.currentOpacity})`;
+                ctx.fill();
+            }
+        }
+
+        // ============ 银河粒子类 ============
+        class GalaxyParticle {
+            constructor(armIndex = 0, isCore = false) {
+                this.armIndex = armIndex;
+                this.isCore = isCore;
+                this.reset();
+            }
+
+            reset() {
+                if (this.isCore) {
+                    // 核心粒子
+                    const angle = random(0, Math.PI * 2);
+                    const dist = random(0, Math.min(width, height) * 0.08);
+                    this.x = centerX + Math.cos(angle) * dist;
+                    this.y = centerY + Math.sin(angle) * dist;
+                    this.size = random(1, 3);
+                    this.color = randomColor(CONFIG.colors.core);
+                    this.orbitRadius = dist;
+                    this.orbitAngle = angle;
+                    this.orbitSpeed = random(0.001, 0.003);
+                } else {
+                    // 旋臂粒子
+                    const armAngle = (this.armIndex / CONFIG.spiralArms) * Math.PI * 2;
+                    const distance = random(50, Math.min(width, height) * 0.45);
+                    const spiralFactor = distance * 0.003;
+                    this.orbitAngle = armAngle + spiralFactor + random(-0.3, 0.3);
+                    this.orbitRadius = distance;
+                    this.x = centerX + Math.cos(this.orbitAngle) * distance;
+                    this.y = centerY + Math.sin(this.orbitAngle) * distance * 0.5; // 椭圆形
+                    this.size = random(0.5, 2);
+                    this.color = randomColor(CONFIG.colors.arms);
+                    this.orbitSpeed = random(0.0002, 0.0008);
+                }
+                this.opacity = random(0.4, 1);
+            }
+
+            update() {
+                this.orbitAngle += this.orbitSpeed;
+                this.x = centerX + Math.cos(this.orbitAngle) * this.orbitRadius;
+                this.y = centerY + Math.sin(this.orbitAngle) * this.orbitRadius * (this.isCore ? 1 : 0.5);
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.opacity;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // ============ 星尘粒子类（鼠标交互） ============
+        class DustParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = random(-2, 2);
+                this.vy = random(-2, 2);
+                this.size = random(1, 3);
+                this.color = randomColor(CONFIG.colors.dust);
+                this.life = 1;
+                this.decay = random(0.01, 0.03);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 超新星爆发类 ============
+        class SupernovaParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(0, Math.PI * 2);
+                const speed = random(2, 8);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = random(1, 4);
+                this.color = randomColor([...CONFIG.colors.core, ...CONFIG.colors.arms]);
+                this.life = 1;
+                this.decay = random(0.005, 0.015);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.96;
+                this.vy *= 0.96;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.5, this.color + '80');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 粒子系统 ============
+        let stars = [];
+        let galaxyParticles = [];
+        let dustParticles = [];
+        let supernovaParticles = [];
+
+        // 初始化星星
+        for (let i = 0; i < CONFIG.stars; i++) {
+            stars.push(new Star());
+        }
+
+        // 初始化银河粒子
+        for (let i = 0; i < 200; i++) {
+            // 核心粒子
+            galaxyParticles.push(new GalaxyParticle(0, true));
+        }
+
+        for (let arm = 0; arm < CONFIG.spiralArms; arm++) {
+            for (let i = 0; i < 100; i++) {
+                galaxyParticles.push(new GalaxyParticle(arm, false));
+            }
+        }
+
+        // ============ 鼠标交互 ============
+        let mouseX = 0, mouseY = 0;
+        let lastMouseX = 0, lastMouseY = 0;
+        let isMouseDown = false;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // 计算鼠标移动速度
+            const speed = distance(mouseX, mouseY, lastMouseX, lastMouseY);
+            
+            // 根据速度产生星尘
+            if (speed > 5) {
+                const count = Math.min(Math.floor(speed / 5), 5);
+                for (let i = 0; i < count; i++) {
+                    dustParticles.push(new DustParticle(
+                        mouseX + random(-10, 10),
+                        mouseY + random(-10, 10)
+                    ));
+                }
+            }
+            
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 超新星爆发
+            for (let i = 0; i < CONFIG.supernovaParticles; i++) {
+                supernovaParticles.push(new SupernovaParticle(e.clientX, e.clientY));
+            }
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制银河光晕 ============
+        function drawGalaxyGlow() {
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.min(width, height) * 0.4
+            );
+            gradient.addColorStop(0, 'rgba(255, 200, 100, 0.15)');
+            gradient.addColorStop(0.3, 'rgba(100, 100, 200, 0.1)');
+            gradient.addColorStop(0.6, 'rgba(50, 50, 150, 0.05)');
+            gradient.addColorStop(1, 'transparent');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 10, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制银河光晕
+            drawGalaxyGlow();
+            
+            // 更新和绘制星星
+            stars.forEach(star => {
+                star.update(time);
+                star.draw();
+            });
+            
+            // 更新和绘制银河粒子
+            galaxyParticles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新和绘制星尘
+            dustParticles = dustParticles.filter(particle => {
+                particle.update();
+                particle.draw();
+                return !particle.isDead();
+            });
+            
+            // 更新和绘制超新星
+            supernovaParticles = supernovaParticles.filter(particle => {
+                particle.update();
+                particle.draw();
+                return !particle.isDead();
+            });
+            
+            // 限制粒子数量以保持性能
+            if (dustParticles.length > 500) {
+                dustParticles = dustParticles.slice(-500);
+            }
+            
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化：页面隐藏时暂停 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 可以在这里暂停动画
+            }
+        });
+    </script>
+</body>
+</html>
