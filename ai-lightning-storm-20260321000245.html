@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>闪电风暴 | Lightning Storm</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a15;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(200, 220, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.1);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        .stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="lightning"></canvas>
+    <div class="title">Lightning</div>
+    <div class="stats" id="stats">闪电: 0 | 雨滴: 0</div>
+    <div class="info">移动鼠标控制云层 | 点击触发闪电</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('lightning');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const statsDisplay = document.getElementById('stats');
+        
+        let width, height;
+        let lightnings = [];
+        let raindrops = [];
+        let clouds = [];
+        let mouseX = 0, mouseY = 0;
+        let time = 0;
+        let flashAlpha = 0;
+        let lightningCount = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 闪电类
+        class Lightning {
+            constructor(startX, startY, targetX, targetY) {
+                this.startX = startX;
+                this.startY = startY;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.segments = this.generatePath();
+                this.life = 1;
+                this.decay = 0.05;
+                this.branches = this.generateBranches();
+            }
+            
+            generatePath() {
+                const segments = [];
+                const steps = 15 + Math.floor(Math.random() * 10);
+                
+                let x = this.startX;
+                let y = this.startY;
+                const dx = (this.targetX - this.startX) / steps;
+                const dy = (this.targetY - this.startY) / steps;
+                
+                for (let i = 0; i <= steps; i++) {
+                    segments.push({ x, y });
+                    
+                    if (i < steps) {
+                        // 主方向
+                        x += dx;
+                        y += dy;
+                        
+                        // 随机偏移
+                        x += (Math.random() - 0.5) * 60;
+                        y += (Math.random() - 0.5) * 30;
+                    }
+                }
+                
+                return segments;
+            }
+            
+            generateBranches() {
+                const branches = [];
+                const branchCount = 2 + Math.floor(Math.random() * 3);
+                
+                for (let i = 0; i < branchCount; i++) {
+                    const startIndex = Math.floor(Math.random() * (this.segments.length - 2)) + 1;
+                    const start = this.segments[startIndex];
+                    
+                    const branchSegments = [];
+                    const steps = 3 + Math.floor(Math.random() * 5);
+                    let x = start.x;
+                    let y = start.y;
+                    
+                    for (let j = 0; j <= steps; j++) {
+                        branchSegments.push({ x, y });
+                        x += (Math.random() - 0.5) * 80;
+                        y += 20 + Math.random() * 30;
+                    }
+                    
+                    branches.push(branchSegments);
+                }
+                
+                return branches;
+            }
+            
+            update() {
+                this.life -= this.decay;
+                return this.life > 0;
+            }
+            
+            draw() {
+                // 主闪电
+                this.drawPath(this.segments, this.life);
+                
+                // 分支
+                this.branches.forEach(branch => {
+                    this.drawPath(branch, this.life * 0.6);
+                });
+            }
+            
+            drawPath(segments, alpha) {
+                if (segments.length < 2) return;
+                
+                // 发光效果
+                ctx.beginPath();
+                ctx.moveTo(segments[0].x, segments[0].y);
+                
+                for (let i = 1; i < segments.length; i++) {
+                    ctx.lineTo(segments[i].x, segments[i].y);
+                }
+                
+                ctx.strokeStyle = `rgba(200, 220, 255, ${alpha})`;
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = 'rgba(150, 180, 255, 0.8)';
+                ctx.stroke();
+                
+                // 核心（更亮）
+                ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // 雨滴类
+        class Raindrop {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * -100;
+                this.speed = 15 + Math.random() * 10;
+                this.length = 20 + Math.random() * 15;
+                this.alpha = 0.3 + Math.random() * 0.4;
+            }
+            
+            update() {
+                this.y += this.speed;
+                this.x += (mouseX - width / 2) / width * 3; // 风的影响
+                
+                if (this.y > height) {
+                    this.reset();
+                }
+                
+                return true;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x, this.y + this.length);
+                ctx.strokeStyle = `rgba(200, 220, 255, ${this.alpha})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+        
+        // 云类
+        class Cloud {
+            constructor(y) {
+                this.x = Math.random() * width;
+                this.y = y;
+                this.width = 200 + Math.random() * 300;
+                this.height = 80 + Math.random() * 40;
+                this.speed = 0.3 + Math.random() * 0.5;
+                this.brightness = 0.3 + Math.random() * 0.3;
+            }
+            
+            update() {
+                this.x += this.speed + (mouseX - width / 2) / width * 0.5;
+                
+                if (this.x > width + this.width) {
+                    this.x = -this.width;
+                }
+            }
+            
+            draw() {
+                ctx.fillStyle = `rgba(60, 70, 90, ${this.brightness})`;
+                
+                // 多个椭圆组成云朵
+                for (let i = 0; i < 5; i++) {
+                    const cx = this.x + i * this.width / 5;
+                    const cy = this.y + Math.sin(i * 1.5) * 20;
+                    
+                    ctx.beginPath();
+                    ctx.ellipse(cx, cy, this.width / 4, this.height / 2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // 绘制天空
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#0a0a15');
+            gradient.addColorStop(0.4, '#151525');
+            gradient.addColorStop(1, '#1a1a2a');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 创建闪电
+        function createLightning(targetX, targetY) {
+            const startX = Math.random() * width;
+            const startY = 0;
+            
+            lightnings.push(new Lightning(startX, startY, targetX, targetY));
+            lightningCount++;
+            
+            // 闪光效果
+            flashAlpha = 0.3;
+        }
+        
+        // 随机闪电
+        function randomLightning() {
+            if (Math.random() > 0.995) {
+                const targetX = Math.random() * width;
+                const targetY = height * (0.5 + Math.random() * 0.3);
+                createLightning(targetX, targetY);
+            }
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 绘制天空
+            drawSky();
+            
+            // 闪光效果
+            if (flashAlpha > 0) {
+                ctx.fillStyle = `rgba(200, 220, 255, ${flashAlpha})`;
+                ctx.fillRect(0, 0, width, height);
+                flashAlpha -= 0.02;
+            }
+            
+            // 更新和绘制云朵
+            clouds.forEach(cloud => {
+                cloud.update();
+                cloud.draw();
+            });
+            
+            // 更新和绘制雨滴
+            raindrops.forEach(drop => {
+                drop.update();
+                drop.draw();
+            });
+            
+            // 更新和绘制闪电
+            lightnings = lightnings.filter(lightning => {
+                const alive = lightning.update();
+                if (alive) lightning.draw();
+                return alive;
+            });
+            
+            // 随机闪电
+            randomLightning();
+            
+            // 更新统计
+            statsDisplay.textContent = `闪电: ${lightningCount} | 雨滴: ${raindrops.length}`;
+            
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 初始化雨滴
+        function initRaindrops() {
+            raindrops = [];
+            for (let i = 0; i < 200; i++) {
+                const drop = new Raindrop();
+                drop.y = Math.random() * height;
+                raindrops.push(drop);
+            }
+        }
+        
+        // 初始化云朵
+        function initClouds() {
+            clouds = [];
+            for (let i = 0; i < 6; i++) {
+                clouds.push(new Cloud(50 + i * 30));
+            }
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            createLightning(e.clientX, e.clientY);
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                createLightning(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        });
+        
+        // 初始化
+        resize();
+        initRaindrops();
+        initClouds();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
