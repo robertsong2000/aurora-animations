@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波浪动画 | Ocean Waves</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="ocean"></canvas>
+    <div class="title">Ocean</div>
+    <div class="info">移动鼠标产生涟漪 | 点击生成浪花</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('ocean');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        
+        let width, height;
+        let time = 0;
+        let mouseX = 0, mouseY = 0;
+        let ripples = [];
+        let splashes = [];
+        let birds = [];
+        let clouds = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 波浪配置
+        const waveConfig = {
+            layers: [
+                { y: 0.45, amplitude: 30, frequency: 0.008, speed: 0.02, color: 'rgba(30, 144, 255, 0.9)' },
+                { y: 0.48, amplitude: 25, frequency: 0.01, speed: 0.025, color: 'rgba(65, 105, 225, 0.8)' },
+                { y: 0.52, amplitude: 35, frequency: 0.012, speed: 0.03, color: 'rgba(70, 130, 180, 0.85)' },
+                { y: 0.56, amplitude: 20, frequency: 0.015, speed: 0.035, color: 'rgba(100, 149, 237, 0.75)' },
+                { y: 0.62, amplitude: 15, frequency: 0.02, speed: 0.04, color: 'rgba(135, 206, 250, 0.65)' }
+            ]
+        };
+        
+        // 涟漪类
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 80 + Math.random() * 40;
+                this.speed = 2;
+                this.life = 1;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.life = 1 - (this.radius / this.maxRadius);
+                return this.life > 0;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y, this.radius, this.radius * 0.3, 0, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.life * 0.6})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+        
+        // 浪花粒子类
+        class SplashParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.8;
+                const speed = 5 + Math.random() * 8;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1;
+                this.decay = 0.02 + Math.random() * 0.02;
+                this.size = 2 + Math.random() * 3;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.3; // 重力
+                this.life -= this.decay;
+                return this.life > 0;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.life})`;
+                ctx.fill();
+            }
+        }
+        
+        // 海鸥类
+        class Bird {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = -50;
+                this.y = height * (0.1 + Math.random() * 0.2);
+                this.speed = 1 + Math.random() * 2;
+                this.wingPhase = Math.random() * Math.PI * 2;
+                this.wingSpeed = 0.1 + Math.random() * 0.1;
+                this.size = 8 + Math.random() * 6;
+            }
+            
+            update() {
+                this.x += this.speed;
+                this.wingPhase += this.wingSpeed;
+                
+                if (this.x > width + 50) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const wingOffset = Math.sin(this.wingPhase) * this.size * 0.5;
+                
+                ctx.strokeStyle = 'rgba(50, 50, 50, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                
+                // 左翼
+                ctx.beginPath();
+                ctx.moveTo(this.x - this.size, this.y + wingOffset);
+                ctx.quadraticCurveTo(this.x - this.size * 0.5, this.y - wingOffset * 0.5, this.x, this.y);
+                ctx.stroke();
+                
+                // 右翼
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.quadraticCurveTo(this.x + this.size * 0.5, this.y - wingOffset * 0.5, this.x + this.size, this.y + wingOffset);
+                ctx.stroke();
+            }
+        }
+        
+        // 云类
+        class Cloud {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = -200;
+                this.y = height * (0.05 + Math.random() * 0.15);
+                this.speed = 0.3 + Math.random() * 0.5;
+                this.width = 100 + Math.random() * 150;
+                this.height = 40 + Math.random() * 30;
+                this.opacity = 0.3 + Math.random() * 0.4;
+            }
+            
+            update() {
+                this.x += this.speed;
+                if (this.x > width + 200) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                
+                // 绘制多个椭圆组成云朵
+                const parts = 5;
+                for (let i = 0; i < parts; i++) {
+                    const px = this.x + (i / parts) * this.width;
+                    const py = this.y + Math.sin(i * 0.8) * this.height * 0.2;
+                    const pw = this.width / parts * 1.5;
+                    const ph = this.height * (0.8 + Math.random() * 0.4);
+                    
+                    ctx.beginPath();
+                    ctx.ellipse(px, py, pw, ph, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // 绘制天空渐变
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height * 0.6);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(0.3, '#B0E0E6');
+            gradient.addColorStop(0.6, '#E0F6FF');
+            gradient.addColorStop(1, '#F0F8FF');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 绘制太阳
+        function drawSun() {
+            const sunX = width * 0.8;
+            const sunY = height * 0.15;
+            const sunRadius = 50;
+            
+            // 光晕
+            for (let i = 5; i >= 0; i--) {
+                const radius = sunRadius + i * 20;
+                const gradient = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, radius);
+                gradient.addColorStop(0, `rgba(255, 255, 200, ${0.3 - i * 0.05})`);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(sunX, sunY, radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+            
+            // 太阳本体
+            const gradient = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunRadius);
+            gradient.addColorStop(0, '#FFFF99');
+            gradient.addColorStop(0.5, '#FFD700');
+            gradient.addColorStop(1, '#FFA500');
+            
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+        
+        // 绘制单层波浪
+        function drawWaveLayer(config, time) {
+            const baseY = height * config.y;
+            
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            
+            // 绘制波浪曲线
+            for (let x = 0; x <= width; x += 5) {
+                const y = baseY 
+                    + Math.sin(x * config.frequency + time * config.speed) * config.amplitude
+                    + Math.sin(x * config.frequency * 2.3 + time * config.speed * 1.5) * config.amplitude * 0.5
+                    + Math.sin(x * config.frequency * 0.7 + time * config.speed * 0.8) * config.amplitude * 0.3;
+                
+                ctx.lineTo(x, y);
+            }
+            
+            ctx.lineTo(width, height);
+            ctx.closePath();
+            
+            ctx.fillStyle = config.color;
+            ctx.fill();
+        }
+        
+        // 绘制波浪泡沫
+        function drawFoam(time) {
+            const foamY = height * 0.45;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            
+            for (let i = 0; i < 30; i++) {
+                const x = (i * 97 + time * 0.5) % width;
+                const y = foamY + Math.sin(x * 0.01 + time * 0.02) * 30 + Math.random() * 10;
+                const size = 3 + Math.random() * 5;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // 绘制水下光线
+        function drawUnderwaterRays() {
+            ctx.save();
+            ctx.globalAlpha = 0.1;
+            
+            for (let i = 0; i < 8; i++) {
+                const x = (i * width / 8) + Math.sin(time * 0.01 + i) * 20;
+                const gradient = ctx.createLinearGradient(x, height * 0.5, x + 50, height);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.moveTo(x, height * 0.5);
+                ctx.lineTo(x + 100, height);
+                ctx.lineTo(x - 50, height);
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            ctx.restore();
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            
+            // 绘制天空
+            drawSky();
+            
+            // 绘制太阳
+            drawSun();
+            
+            // 更新和绘制云朵
+            clouds.forEach(cloud => {
+                cloud.update();
+                cloud.draw();
+            });
+            
+            // 更新和绘制海鸥
+            birds.forEach(bird => {
+                bird.update();
+                bird.draw();
+            });
+            
+            // 绘制波浪（从后往前）
+            for (let i = waveConfig.layers.length - 1; i >= 0; i--) {
+                drawWaveLayer(waveConfig.layers[i], time);
+            }
+            
+            // 绘制水下光线
+            drawUnderwaterRays();
+            
+            // 绘制泡沫
+            drawFoam(time);
+            
+            // 更新和绘制涟漪
+            ripples = ripples.filter(ripple => {
+                const alive = ripple.update();
+                if (alive) ripple.draw();
+                return alive;
+            });
+            
+            // 更新和绘制浪花粒子
+            splashes = splashes.filter(particle => {
+                const alive = particle.update();
+                if (alive) particle.draw();
+                return alive;
+            });
+            
+            // 鼠标产生涟漪
+            if (mouseY > height * 0.45 && Math.random() > 0.85) {
+                ripples.push(new Ripple(mouseX, mouseY));
+            }
+            
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 创建浪花爆发
+        function createSplash(x, y) {
+            const particleCount = 20 + Math.floor(Math.random() * 15);
+            for (let i = 0; i < particleCount; i++) {
+                splashes.push(new SplashParticle(x, y));
+            }
+            
+            // 创建多个涟漪
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    ripples.push(new Ripple(x + (Math.random() - 0.5) * 30, y));
+                }, i * 100);
+            }
+        }
+        
+        // 初始化
+        function init() {
+            resize();
+            
+            // 初始化海鸥
+            birds = [];
+            for (let i = 0; i < 5; i++) {
+                const bird = new Bird();
+                bird.x = Math.random() * width; // 随机起始位置
+                birds.push(bird);
+            }
+            
+            // 初始化云朵
+            clouds = [];
+            for (let i = 0; i < 4; i++) {
+                const cloud = new Cloud();
+                cloud.x = Math.random() * width; // 随机起始位置
+                clouds.push(cloud);
+            }
+            
+            mouseX = width / 2;
+            mouseY = height / 2;
+            
+            render();
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        window.addEventListener('click', (e) => {
+            // 只在水面上点击产生浪花
+            if (e.clientY > height * 0.45) {
+                createSplash(e.clientX, e.clientY);
+            }
+        });
+        
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                const touchY = e.touches[0].clientY;
+                if (touchY > height * 0.45) {
+                    createSplash(e.touches[0].clientX, touchY);
+                }
+            }
+        });
+        
+        // 启动
+        init();
+    </script>
+</body>
+</html>
