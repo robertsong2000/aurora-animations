@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>彩虹瀑布 | Rainbow Waterfall</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.15);
+            font-size: 48px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            pointer-events: none;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+        
+        .stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="waterfall"></canvas>
+    <div class="title">Waterfall</div>
+    <div class="stats" id="stats">粒子: 0 | 水花: 0</div>
+    <div class="info">移动鼠标改变流向 | 点击产生水花</div>
+    <div class="fps" id="fps"></div>
+    
+    <script>
+        const canvas = document.getElementById('waterfall');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+        const statsDisplay = document.getElementById('stats');
+        
+        let width, height;
+        let drops = [];
+        let splashes = [];
+        let mist = [];
+        let mouseX = 0, mouseY = 0;
+        let time = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        // 水滴类
+        class Drop {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = width / 2 + (Math.random() - 0.5) * 100;
+                this.y = -10;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = Math.random() * 3 + 5;
+                this.size = Math.random() * 4 + 2;
+                this.hue = Math.random() * 360;
+                this.trail = [];
+                this.trailLength = 10;
+            }
+            
+            update() {
+                // 保存轨迹
+                this.trail.push({ x: this.x, y: this.y, hue: this.hue });
+                if (this.trail.length > this.trailLength) {
+                    this.trail.shift();
+                }
+                
+                // 鼠标影响
+                const dx = mouseX - width / 2;
+                const influence = dx / width * 3;
+                this.vx += influence * 0.1;
+                
+                // 重力
+                this.vy += 0.2;
+                
+                // 限制速度
+                this.vy = Math.min(this.vy, 15);
+                
+                // 移动
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 色相变化
+                this.hue = (this.hue + 1) % 360;
+                
+                // 落到底部
+                if (this.y > height - 100) {
+                    // 创建水花
+                    if (Math.random() > 0.7) {
+                        createSplash(this.x, height - 100, this.hue);
+                    }
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            draw() {
+                // 绘制轨迹
+                for (let i = 0; i < this.trail.length; i++) {
+                    const point = this.trail[i];
+                    const alpha = i / this.trail.length * 0.5;
+                    const size = this.size * (i / this.trail.length);
+                    
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${point.hue}, 80%, 60%, ${alpha})`;
+                    ctx.fill();
+                }
+                
+                // 绘制水滴
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                gradient.addColorStop(0, `hsla(${this.hue}, 80%, 70%, 0.8)`);
+                gradient.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, 1)`;
+                ctx.fill();
+            }
+        }
+        
+        // 水花类
+        class Splash {
+            constructor(x, y, hue) {
+                this.x = x;
+                this.y = y;
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI;
+                const speed = 3 + Math.random() * 5;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = Math.random() * 3 + 1;
+                this.hue = hue;
+                this.life = 1;
+                this.decay = 0.03;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.2;
+                this.life -= this.decay;
+                
+                return this.life > 0;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${this.life})`;
+                ctx.fill();
+            }
+        }
+        
+        // 雾气类
+        class Mist {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = height - 80 + Math.random() * 40;
+                this.size = 50 + Math.random() * 100;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.alpha = 0.1 + Math.random() * 0.1;
+                this.hue = Math.random() * 360;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.hue = (this.hue + 0.5) % 360;
+                
+                if (this.x < -this.size) this.x = width + this.size;
+                if (this.x > width + this.size) this.x = -this.size;
+            }
+            
+            draw() {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size
+                );
+                gradient.addColorStop(0, `hsla(${this.hue}, 60%, 70%, ${this.alpha})`);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // 创建水花
+        function createSplash(x, y, hue) {
+            for (let i = 0; i < 5 + Math.floor(Math.random() * 5); i++) {
+                splashes.push(new Splash(x, y, hue));
+            }
+        }
+        
+        // 绘制岩石
+        function drawRocks() {
+            ctx.fillStyle = '#2a2a3a';
+            
+            // 左侧岩石
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            ctx.lineTo(0, height - 200);
+            ctx.lineTo(width * 0.3, height - 150);
+            ctx.lineTo(width * 0.35, height - 100);
+            ctx.lineTo(width * 0.4, height);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 右侧岩石
+            ctx.beginPath();
+            ctx.moveTo(width, height);
+            ctx.lineTo(width, height - 200);
+            ctx.lineTo(width * 0.7, height - 150);
+            ctx.lineTo(width * 0.65, height - 100);
+            ctx.lineTo(width * 0.6, height);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // 绘制水池
+        function drawPool() {
+            const gradient = ctx.createLinearGradient(0, height - 100, 0, height);
+            gradient.addColorStop(0, 'rgba(100, 150, 200, 0.3)');
+            gradient.addColorStop(1, 'rgba(50, 100, 150, 0.5)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(width * 0.35, height - 100, width * 0.3, 100);
+        }
+        
+        // 绘制背景
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(0.5, '#16213e');
+            gradient.addColorStop(1, '#0f3460');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 主渲染循环
+        function render() {
+            // 绘制背景
+            drawBackground();
+            
+            // 绘制岩石
+            drawRocks();
+            
+            // 生成新水滴
+            while (drops.length < 150) {
+                drops.push(new Drop());
+            }
+            
+            // 更新和绘制水滴
+            drops = drops.filter(drop => {
+                const alive = drop.update();
+                if (alive) drop.draw();
+                return alive;
+            });
+            
+            // 绘制水池
+            drawPool();
+            
+            // 更新和绘制雾气
+            mist.forEach(m => {
+                m.update();
+                m.draw();
+            });
+            
+            // 更新和绘制水花
+            splashes = splashes.filter(splash => {
+                const alive = splash.update();
+                if (alive) splash.draw();
+                return alive;
+            });
+            
+            // 更新统计
+            statsDisplay.textContent = `粒子: ${drops.length} | 水花: ${splashes.length}`;
+            
+            time++;
+            
+            // FPS 计算
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // 调整画布大小
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        
+        // 初始化雾气
+        function initMist() {
+            mist = [];
+            for (let i = 0; i < 10; i++) {
+                mist.push(new Mist());
+            }
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            createSplash(e.clientX, e.clientY, Math.random() * 360);
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                createSplash(e.touches[0].clientX, e.touches[0].clientY, Math.random() * 360);
+            }
+        });
+        
+        // 初始化
+        resize();
+        initMist();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        render();
+    </script>
+</body>
+</html>
