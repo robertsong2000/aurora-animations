@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光束隧道 - Light Tunnel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(150, 100, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="tunnel"></canvas>
+    <div class="info">
+        <span>💫 光束隧道</span>
+        <span>🖱️ 移动鼠标 - 扭曲隧道</span>
+        <span>👆 点击 - 能量脉冲</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            ringCount: 30,
+            segmentsPerRing: 24,
+            tunnelLength: 2000,
+            speed: 2,
+            colors: {
+                primary: '#8B5CF6',
+                secondary: '#06B6D4',
+                accent: '#F59E0B',
+                highlight: '#EC4899'
+            }
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('tunnel');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // ============ 隧道环类 ============
+        class TunnelRing {
+            constructor(z, index) {
+                this.z = z;
+                this.index = index;
+                this.baseRadius = 0;
+                this.rotation = random(0, Math.PI * 2);
+                this.rotationSpeed = random(-0.01, 0.01);
+            }
+
+            project(mouseX, mouseY, mouseActive) {
+                // 透视投影
+                const scale = 500 / (500 + this.z);
+                this.baseRadius = 300 * scale;
+                
+                this.x = centerX * scale + (1 - scale) * centerX;
+                this.y = centerY * scale + (1 - scale) * centerY;
+                
+                // 鼠标扭曲
+                if (mouseActive && this.z < 1000) {
+                    const dx = mouseX - centerX;
+                    const dy = mouseY - centerY;
+                    const influence = (1 - this.z / 1000) * 0.3;
+                    this.x += dx * influence;
+                    this.y += dy * influence;
+                }
+                
+                this.scale = scale;
+                this.opacity = Math.max(0, 1 - this.z / CONFIG.tunnelLength);
+            }
+
+            update() {
+                this.rotation += this.rotationSpeed;
+            }
+
+            draw(time) {
+                if (this.opacity <= 0) return;
+
+                const segments = CONFIG.segmentsPerRing;
+                const angleStep = (Math.PI * 2) / segments;
+                
+                // 选择颜色
+                const colors = Object.values(CONFIG.colors);
+                const colorIndex = Math.floor((this.index + time * 0.001) % colors.length);
+                const color = colors[colorIndex];
+
+                ctx.beginPath();
+                
+                for (let i = 0; i <= segments; i++) {
+                    const angle = i * angleStep + this.rotation;
+                    const waveOffset = Math.sin(angle * 3 + time * 0.003) * 10 * this.scale;
+                    const radius = this.baseRadius + waveOffset;
+                    
+                    const x = this.x + Math.cos(angle) * radius;
+                    const y = this.y + Math.sin(angle) * radius;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.closePath();
+                ctx.strokeStyle = hexToRgba(color, this.opacity * 0.8);
+                ctx.lineWidth = 2 * this.scale;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 10 * this.scale;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // 绘制节点
+                for (let i = 0; i < segments; i += 3) {
+                    const angle = i * angleStep + this.rotation;
+                    const radius = this.baseRadius;
+                    const x = this.x + Math.cos(angle) * radius;
+                    const y = this.y + Math.sin(angle) * radius;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3 * this.scale, 0, Math.PI * 2);
+                    ctx.fillStyle = hexToRgba(color, this.opacity);
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 8 * this.scale;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+
+        // ============ 光束粒子类 ============
+        class LightParticle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                const angle = random(0, Math.PI * 2);
+                const distance = random(50, 250);
+                this.x = centerX + Math.cos(angle) * distance;
+                this.y = centerY + Math.sin(angle) * distance;
+                this.z = CONFIG.tunnelLength;
+                this.speed = random(8, 15);
+                this.size = random(2, 5);
+                this.color = Object.values(CONFIG.colors)[Math.floor(random(0, 4))];
+            }
+
+            update() {
+                this.z -= this.speed;
+                if (this.z < 0) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                const scale = 500 / (500 + this.z);
+                const screenX = centerX + (this.x - centerX) * scale;
+                const screenY = centerY + (this.y - centerY) * scale;
+                const opacity = 1 - this.z / CONFIG.tunnelLength;
+                const size = this.size * scale;
+
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                ctx.fillStyle = hexToRgba(this.color, opacity);
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 15 * scale;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ============ 脉冲类 ============
+        class Pulse {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.z = 0;
+                this.speed = 20;
+                this.maxZ = CONFIG.tunnelLength;
+                this.life = 1;
+            }
+
+            update() {
+                this.z += this.speed;
+                this.life = 1 - this.z / this.maxZ;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                const scale = 500 / (500 + this.z);
+                const radius = 300 * scale;
+                const screenX = centerX + (this.x - centerX) * (1 - scale);
+                const screenY = centerY + (this.y - centerY) * (1 - scale);
+
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = hexToRgba(CONFIG.colors.highlight, this.life * 0.5);
+                ctx.lineWidth = 3 * this.life * scale;
+                ctx.shadowColor = CONFIG.colors.highlight;
+                ctx.shadowBlur = 20 * this.life * scale;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 初始化 ============
+        const rings = [];
+        const particles = [];
+        const pulses = [];
+
+        // 创建隧道环
+        for (let i = 0; i < CONFIG.ringCount; i++) {
+            const z = (i / CONFIG.ringCount) * CONFIG.tunnelLength;
+            rings.push(new TunnelRing(z, i));
+        }
+
+        // 创建粒子
+        for (let i = 0; i < 50; i++) {
+            const p = new LightParticle();
+            p.z = random(0, CONFIG.tunnelLength);
+            particles.push(p);
+        }
+
+        // ============ 鼠标状态 ============
+        let mouseX = centerX;
+        let mouseY = centerY;
+        let mouseActive = false;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouseActive = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            pulses.push(new Pulse(e.clientX, e.clientY));
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(width, height));
+            gradient.addColorStop(0, '#1a0a2e');
+            gradient.addColorStop(0.5, '#0a0515');
+            gradient.addColorStop(1, '#000005');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 绘制中心光晕 ============
+        function drawCenterGlow(time) {
+            const pulse = Math.sin(time * 0.002) * 0.3 + 1;
+            
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 100 * pulse);
+            gradient.addColorStop(0, hexToRgba(CONFIG.colors.accent, 0.8));
+            gradient.addColorStop(0.3, hexToRgba(CONFIG.colors.primary, 0.4));
+            gradient.addColorStop(0.6, hexToRgba(CONFIG.colors.secondary, 0.2));
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 100 * pulse, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            drawBackground();
+            drawCenterGlow(time);
+
+            // 更新环的Z位置
+            rings.forEach(ring => {
+                ring.z -= CONFIG.speed;
+                if (ring.z < 0) {
+                    ring.z = CONFIG.tunnelLength;
+                }
+                ring.update();
+                ring.project(mouseX, mouseY, mouseActive);
+            });
+
+            // 按Z排序（远的先画）
+            rings.sort((a, b) => b.z - a.z);
+
+            // 绘制环
+            rings.forEach(ring => ring.draw(time));
+
+            // 更新和绘制粒子
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            // 更新和绘制脉冲
+            for (let i = pulses.length - 1; i >= 0; i--) {
+                pulses[i].update();
+                pulses[i].draw();
+                if (pulses[i].isDead()) {
+                    pulses.splice(i, 1);
+                }
+            }
+
+            // 限制脉冲数量
+            if (pulses.length > 5) {
+                pulses.splice(0, pulses.length - 5);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>
