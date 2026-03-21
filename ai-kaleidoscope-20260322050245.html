@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何万花筒 | Geometric Kaleidoscope</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1a0a2e 0%, #0a0a15 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            cursor: none;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .custom-cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s ease, border-color 0.3s ease;
+        }
+
+        .custom-cursor.clicking {
+            transform: translate(-50%, -50%) scale(1.5);
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.85rem;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .info h3 {
+            margin-bottom: 10px;
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .info p {
+            margin: 5px 0;
+            opacity: 0.8;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .color-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .color-dot {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .color-dot.active {
+            transform: scale(1.3);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+
+        @media (max-width: 768px) {
+            .info {
+                font-size: 0.75rem;
+                padding: 10px 15px;
+            }
+            .stats {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="custom-cursor" id="cursor"></div>
+    
+    <div class="info">
+        <h3>✨ 几何万花筒</h3>
+        <p>🖱️ 移动鼠标控制旋转</p>
+        <p>👆 点击切换颜色主题</p>
+        <p>🔄 滚轮调整对称轴数</p>
+    </div>
+
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>对称轴: <span id="symmetry">8</span></div>
+        <div>图形数: <span id="shapes">0</span></div>
+    </div>
+
+    <div class="color-indicator" id="colorIndicator"></div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const symmetryDisplay = document.getElementById('symmetry');
+        const shapesDisplay = document.getElementById('shapes');
+        const cursor = document.getElementById('cursor');
+        const colorIndicator = document.getElementById('colorIndicator');
+        
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        // 万花筒参数
+        let symmetry = 8;
+        let rotation = 0;
+        let targetRotation = 0;
+        let mouseX = 0;
+        let mouseY = 0;
+        let autoRotate = true;
+
+        // 颜色主题
+        const colorThemes = [
+            { name: 'Aurora', colors: ['#00ff88', '#00ddff', '#aa00ff', '#ff0088'] },
+            { name: 'Sunset', colors: ['#ff6b35', '#ff8c42', '#ffd23f', '#ff6b9d'] },
+            { name: 'Ocean', colors: ['#006994', '#40e0d0', '#00ced1', '#20b2aa'] },
+            { name: 'Cosmic', colors: ['#9b59b6', '#3498db', '#e74c3c', '#f39c12'] },
+            { name: 'Neon', colors: ['#ff00ff', '#00ffff', '#ffff00', '#ff0080'] }
+        ];
+        let currentTheme = 0;
+
+        // 几何图形类
+        class GeometricShape {
+            constructor(x, y) {
+                this.x = x - centerX;
+                this.y = y - centerY;
+                this.distance = Math.sqrt(this.x * this.x + this.y * this.y);
+                this.angle = Math.atan2(this.y, this.x);
+                this.size = 20 + Math.random() * 40;
+                this.sides = Math.floor(Math.random() * 5) + 3; // 3-7边形
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.02;
+                this.color = colorThemes[currentTheme].colors[Math.floor(Math.random() * 4)];
+                this.alpha = 0.6 + Math.random() * 0.4;
+                this.life = 1;
+                this.decay = 0.002 + Math.random() * 0.003;
+                this.pulsePhase = Math.random() * Math.PI * 2;
+                this.pulseSpeed = 0.02 + Math.random() * 0.03;
+            }
+
+            update() {
+                this.rotation += this.rotationSpeed;
+                this.pulsePhase += this.pulseSpeed;
+                this.life -= this.decay;
+                this.alpha = this.life * 0.6;
+                return this.life > 0;
+            }
+
+            draw() {
+                const pulse = Math.sin(this.pulsePhase) * 0.2 + 1;
+                const currentSize = this.size * pulse;
+                
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.globalAlpha = this.alpha;
+
+                // 绘制多边形
+                ctx.beginPath();
+                for (let i = 0; i < this.sides; i++) {
+                    const angle = (i / this.sides) * Math.PI * 2;
+                    const px = Math.cos(angle) * currentSize;
+                    const py = Math.sin(angle) * currentSize;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+
+                // 渐变填充
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, currentSize);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // 边框
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 发光效果
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        const shapes = [];
+        const maxShapes = 200;
+
+        // 绘制对称的万花筒效果
+        function drawKaleidoscope() {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rotation);
+
+            // 绘制所有对称副本
+            for (let i = 0; i < symmetry; i++) {
+                ctx.save();
+                ctx.rotate((i / symmetry) * Math.PI * 2);
+                
+                // 绘制所有图形
+                shapes.forEach(shape => {
+                    ctx.save();
+                    // 镜像效果（每隔一个对称轴）
+                    if (i % 2 === 1) {
+                        ctx.scale(1, -1);
+                    }
+                    shape.draw();
+                    ctx.restore();
+                });
+                
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        // 绘制装饰性线条
+        function drawDecorativeLines() {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rotation * 0.5);
+
+            const lineCount = symmetry;
+            for (let i = 0; i < lineCount; i++) {
+                const angle = (i / lineCount) * Math.PI * 2;
+                ctx.save();
+                ctx.rotate(angle);
+                
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.min(width, height) * 0.5, 0);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.05})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        // 绘制中心图案
+        function drawCenter() {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(-rotation * 2);
+
+            const radius = 50;
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+            gradient.addColorStop(0, colorThemes[currentTheme].colors[0]);
+            gradient.addColorStop(0.5, colorThemes[currentTheme].colors[1]);
+            gradient.addColorStop(1, 'transparent');
+
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.globalAlpha = 0.5;
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        // 创建颜色指示器
+        function createColorIndicator() {
+            colorIndicator.innerHTML = '';
+            colorThemes.forEach((theme, index) => {
+                const dot = document.createElement('div');
+                dot.className = 'color-dot' + (index === currentTheme ? ' active' : '');
+                dot.style.background = `linear-gradient(135deg, ${theme.colors[0]}, ${theme.colors[1]})`;
+                dot.addEventListener('click', () => {
+                    currentTheme = index;
+                    updateColorIndicator();
+                });
+                colorIndicator.appendChild(dot);
+            });
+        }
+
+        function updateColorIndicator() {
+            const dots = colorIndicator.querySelectorAll('.color-dot');
+            dots.forEach((dot, index) => {
+                dot.classList.toggle('active', index === currentTheme);
+            });
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            // 清空画布（带淡出）
+            ctx.fillStyle = 'rgba(10, 10, 21, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 自动旋转
+            if (autoRotate) {
+                rotation += 0.005;
+            }
+
+            // 鼠标影响旋转
+            const mouseInfluence = (mouseX - centerX) / width;
+            rotation += mouseInfluence * 0.01;
+
+            // 更新和清理图形
+            for (let i = shapes.length - 1; i >= 0; i--) {
+                if (!shapes[i].update()) {
+                    shapes.splice(i, 1);
+                }
+            }
+
+            // 绘制
+            drawDecorativeLines();
+            drawKaleidoscope();
+            drawCenter();
+
+            // 更新统计
+            shapesDisplay.textContent = shapes.length * symmetry;
+
+            requestAnimationFrame(animate);
+        }
+
+        // 自动生成图形
+        function autoGenerateShapes() {
+            if (shapes.length < maxShapes / 2) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = Math.random() * Math.min(width, height) * 0.4;
+                const x = centerX + Math.cos(angle) * distance;
+                const y = centerY + Math.sin(angle) * distance;
+                shapes.push(new GeometricShape(x, y));
+            }
+        }
+
+        setInterval(autoGenerateShapes, 100);
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            cursor.style.left = mouseX + 'px';
+            cursor.style.top = mouseY + 'px';
+        });
+
+        canvas.addEventListener('click', (e) => {
+            currentTheme = (currentTheme + 1) % colorThemes.length;
+            updateColorIndicator();
+            
+            // 创建爆发效果
+            for (let i = 0; i < 10; i++) {
+                const angle = (i / 10) * Math.PI * 2;
+                const distance = 50 + Math.random() * 100;
+                const x = e.clientX + Math.cos(angle) * distance;
+                const y = e.clientY + Math.sin(angle) * distance;
+                if (shapes.length < maxShapes) {
+                    shapes.push(new GeometricShape(x, y));
+                }
+            }
+
+            cursor.classList.add('clicking');
+            setTimeout(() => cursor.classList.remove('clicking'), 200);
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            symmetry = Math.max(3, Math.min(16, symmetry + (e.deltaY > 0 ? 1 : -1)));
+            symmetryDisplay.textContent = symmetry;
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            currentTheme = (currentTheme + 1) % colorThemes.length;
+            updateColorIndicator();
+            
+            for (let i = 0; i < 10; i++) {
+                const angle = (i / 10) * Math.PI * 2;
+                const distance = 50 + Math.random() * 100;
+                const x = mouseX + Math.cos(angle) * distance;
+                const y = mouseY + Math.sin(angle) * distance;
+                if (shapes.length < maxShapes) {
+                    shapes.push(new GeometricShape(x, y));
+                }
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 初始化
+        resize();
+        createColorIndicator();
+        
+        // 初始图形
+        for (let i = 0; i < 20; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const distance = Math.random() * Math.min(width, height) * 0.3;
+            const x = centerX + Math.cos(angle) * distance;
+            const y = centerY + Math.sin(angle) * distance;
+            shapes.push(new GeometricShape(x, y));
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
