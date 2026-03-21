@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雨滴效果 - Rain Drops</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(150, 200, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(100, 150, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(150, 200, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="rain"></canvas>
+    <div class="info">
+        <span>🌧️ 雨滴效果</span>
+        <span>🖱️ 移动鼠标 - 控制风向</span>
+        <span>👆 点击 - 雨滴爆发</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            maxDrops: 300,
+            dropSpeed: { min: 8, max: 15 },
+            dropLength: { min: 15, max: 30 },
+            splashParticles: 8,
+            windInfluence: 0.5,
+            colors: {
+                drop: 'rgba(174, 194, 224, 0.6)',
+                splash: ['#87CEEB', '#B0E0E6', '#ADD8E6', '#E6E6FA']
+            }
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('rain');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor(colors) {
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        // ============ 雨滴类 ============
+        class RainDrop {
+            constructor(burst = false, x = null, y = null) {
+                this.x = x !== null ? x : random(0, width);
+                this.y = y !== null ? y : random(-100, -10);
+                this.speed = random(CONFIG.dropSpeed.min, CONFIG.dropSpeed.max);
+                this.length = random(CONFIG.dropLength.min, CONFIG.dropLength.max);
+                this.thickness = random(1, 2);
+                this.opacity = random(0.3, 0.7);
+                this.burst = burst;
+                
+                if (burst) {
+                    const angle = random(Math.PI * 0.6, Math.PI * 0.9);
+                    const speed = random(5, 12);
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = -Math.sin(angle) * speed;
+                } else {
+                    this.vx = 0;
+                    this.vy = this.speed;
+                }
+            }
+
+            update(wind) {
+                if (this.burst) {
+                    this.vx *= 0.98;
+                    this.vy += 0.3;
+                } else {
+                    this.vx = wind * CONFIG.windInfluence;
+                    this.vy = this.speed;
+                }
+                
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                const endX = this.x + this.vx * 2;
+                const endY = this.y + this.length;
+                
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(endX, endY);
+                ctx.strokeStyle = `rgba(174, 194, 224, ${this.opacity})`;
+                ctx.lineWidth = this.thickness;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            }
+
+            isOffScreen() {
+                return this.y > height + 50 || this.x < -50 || this.x > width + 50;
+            }
+
+            shouldSplash() {
+                return this.y > height - 10 && !this.burst;
+            }
+        }
+
+        // ============ 溅射粒子类 ============
+        class SplashParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(-Math.PI, 0);
+                const speed = random(1, 4);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = random(1, 3);
+                this.life = 1;
+                this.decay = random(0.03, 0.06);
+                this.color = randomColor(CONFIG.colors.splash);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.15;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 涟漪类 ============
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = random(20, 40);
+                this.speed = random(1, 2);
+                this.life = 1;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.life = 1 - this.radius / this.maxRadius;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y, this.radius, this.radius * 0.3, 0, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(150, 200, 255, ${this.life * 0.5})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 闪电类 ============
+        class Lightning {
+            constructor() {
+                this.x = random(width * 0.2, width * 0.8);
+                this.y = 0;
+                this.segments = [];
+                this.life = 1;
+                this.decay = 0.1;
+                this.generatePath();
+            }
+
+            generatePath() {
+                let x = this.x;
+                let y = this.y;
+                
+                while (y < height * 0.6) {
+                    const nextX = x + random(-30, 30);
+                    const nextY = y + random(20, 50);
+                    this.segments.push({ x1: x, y1: y, x2: nextX, y2: nextY });
+                    
+                    // 分支
+                    if (Math.random() < 0.3) {
+                        const branchX = nextX + random(-50, 50);
+                        const branchY = nextY + random(30, 60);
+                        this.segments.push({ x1: nextX, y1: nextY, x2: branchX, y2: branchY, branch: true });
+                    }
+                    
+                    x = nextX;
+                    y = nextY;
+                }
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.shadowColor = 'rgba(200, 220, 255, 0.8)';
+                ctx.shadowBlur = 20;
+                
+                this.segments.forEach(seg => {
+                    ctx.beginPath();
+                    ctx.moveTo(seg.x1, seg.y1);
+                    ctx.lineTo(seg.x2, seg.y2);
+                    ctx.strokeStyle = seg.branch ? 
+                        `rgba(200, 220, 255, ${this.life * 0.5})` : 
+                        `rgba(255, 255, 255, ${this.life})`;
+                    ctx.lineWidth = seg.branch ? 1 : 2;
+                    ctx.stroke();
+                });
+                
+                ctx.shadowBlur = 0;
+            }
+
+            update() {
+                this.life -= this.decay;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 初始化 ============
+        const rainDrops = [];
+        const splashParticles = [];
+        const ripples = [];
+        const lightnings = [];
+
+        let wind = 0;
+        let targetWind = 0;
+        let mouseX = width / 2;
+
+        // ============ 鼠标交互 ============
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            targetWind = (mouseX - width / 2) / (width / 2) * 3;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            targetWind = 0;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 雨滴爆发
+            for (let i = 0; i < 30; i++) {
+                rainDrops.push(new RainDrop(true, e.clientX + random(-20, 20), e.clientY));
+            }
+            
+            // 涟漪
+            ripples.push(new Ripple(e.clientX, height - 5));
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            // 渐变天空
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(0.5, '#16213e');
+            gradient.addColorStop(1, '#0f3460');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // 地面
+            const groundGradient = ctx.createLinearGradient(0, height - 50, 0, height);
+            groundGradient.addColorStop(0, '#0a0a15');
+            groundGradient.addColorStop(1, '#151525');
+            
+            ctx.fillStyle = groundGradient;
+            ctx.fillRect(0, height - 50, width, 50);
+            
+            // 地面反光
+            ctx.fillStyle = 'rgba(100, 150, 200, 0.1)';
+            ctx.fillRect(0, height - 10, width, 10);
+        }
+
+        // ============ 闪电定时器 ============
+        let lightningTimer = 0;
+        
+        function maybeLightning() {
+            lightningTimer++;
+            if (lightningTimer > 300 && Math.random() < 0.01) {
+                lightnings.push(new Lightning());
+                lightningTimer = 0;
+            }
+        }
+
+        // ============ 主动画循环 ============
+        function animate() {
+            // 清除画布
+            ctx.clearRect(0, 0, width, height);
+            
+            // 绘制背景
+            drawBackground();
+
+            // 平滑风向
+            wind = wind + (targetWind - wind) * 0.05;
+
+            // 生成新雨滴
+            while (rainDrops.length < CONFIG.maxDrops) {
+                rainDrops.push(new RainDrop());
+            }
+
+            // 闪电
+            maybeLightning();
+
+            // 更新和绘制闪电
+            for (let i = lightnings.length - 1; i >= 0; i--) {
+                lightnings[i].update();
+                lightnings[i].draw();
+                if (lightnings[i].isDead()) {
+                    lightnings.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制雨滴
+            for (let i = rainDrops.length - 1; i >= 0; i--) {
+                const drop = rainDrops[i];
+                drop.update(wind);
+                drop.draw();
+
+                if (drop.shouldSplash()) {
+                    // 创建溅射效果
+                    for (let j = 0; j < CONFIG.splashParticles; j++) {
+                        splashParticles.push(new SplashParticle(drop.x, height - 5));
+                    }
+                    // 创建涟漪
+                    ripples.push(new Ripple(drop.x, height - 5));
+                    rainDrops.splice(i, 1);
+                } else if (drop.isOffScreen()) {
+                    rainDrops.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制溅射粒子
+            for (let i = splashParticles.length - 1; i >= 0; i--) {
+                splashParticles[i].update();
+                splashParticles[i].draw();
+                if (splashParticles[i].isDead()) {
+                    splashParticles.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制涟漪
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                ripples[i].update();
+                ripples[i].draw();
+                if (ripples[i].isDead()) {
+                    ripples.splice(i, 1);
+                }
+            }
+
+            // 限制粒子数量
+            if (splashParticles.length > 500) {
+                splashParticles.splice(0, splashParticles.length - 500);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>
