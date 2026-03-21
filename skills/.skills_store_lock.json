@@ -60,6 +60,12 @@
       "zip_url": "https://lightmake.site/api/v1/download?slug=multi-search-engine",
       "source": "skillhub",
       "version": "2.0.1"
+    },
+    "memory-manager": {
+      "name": "Memory Manager",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=memory-manager",
+      "source": "skillhub",
+      "version": "1.0.0"
     }
   }
 }

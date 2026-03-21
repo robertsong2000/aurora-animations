@@ -1,0 +1,14 @@
+{
+  "initialized": true,
+  "version": "1.0.0",
+  "last_check": null,
+  "last_snapshot": null,
+  "last_organize": null,
+  "warnings": 0,
+  "stats": {
+    "episodic_count": 0,
+    "semantic_count": 0,
+    "procedural_count": 0,
+    "snapshots_count": 0
+  }
+}

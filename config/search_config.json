@@ -1,0 +1,14 @@
+{
+  "default_provider": "tavily",
+  "providers": {
+    "tavily": {
+      "api_key": "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",
+      "max_results": 10,
+      "search_depth": "advanced"
+    },
+    "kimi": {
+      "enabled": false,
+      "note": "Knowledge cutoff at 2023, not suitable for real-time news"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# 地缘政治监控定时任务
+# 每天早上 8:00 运行
+
+0 8 * * * /usr/bin/python3 /home/ubuntu/.openclaw/workspace/scripts/geopolitics-monitor-simple.py >> /home/ubuntu/.openclaw/workspace/logs/geopolitics.log 2>&1
