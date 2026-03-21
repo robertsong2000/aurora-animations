@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子动画 - Particle Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0f;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="particles"></canvas>
+    <div class="info">
+        <span>✨ 粒子动画</span>
+        <span>🖱️ 移动鼠标 - 吸引/排斥粒子</span>
+        <span>👆 点击 - 粒子爆发</span>
+        <span>🎨 双击 - 切换模式</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            particleCount: 200,
+            connectionDistance: 120,
+            mouseRadius: 150,
+            modes: ['attract', 'repel', 'orbit', 'follow'],
+            colors: [
+                '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+                '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+            ]
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor() {
+            return CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // ============ 粒子类 ============
+        class Particle {
+            constructor(x, y, burst = false) {
+                this.x = x !== undefined ? x : random(0, width);
+                this.y = y !== undefined ? y : random(0, height);
+                this.vx = random(-1, 1);
+                this.vy = random(-1, 1);
+                this.baseSpeed = random(0.5, 1.5);
+                this.size = random(2, 5);
+                this.color = randomColor();
+                this.life = 1;
+                this.decay = burst ? random(0.01, 0.03) : 0;
+                this.burst = burst;
+                this.originalX = this.x;
+                this.originalY = this.y;
+                
+                if (burst) {
+                    const angle = random(0, Math.PI * 2);
+                    const speed = random(3, 10);
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                }
+            }
+
+            update(mouseX, mouseY, mouseActive, mode) {
+                if (this.burst) {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vx *= 0.98;
+                    this.vy *= 0.98;
+                    this.life -= this.decay;
+                    return;
+                }
+
+                // 基础运动
+                this.x += this.vx * this.baseSpeed;
+                this.y += this.vy * this.baseSpeed;
+
+                // 边界反弹
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+
+                this.x = Math.max(0, Math.min(width, this.x));
+                this.y = Math.max(0, Math.min(height, this.y));
+
+                // 鼠标交互
+                if (mouseActive) {
+                    const dist = distance(this.x, this.y, mouseX, mouseY);
+                    
+                    if (dist < CONFIG.mouseRadius) {
+                        const force = (CONFIG.mouseRadius - dist) / CONFIG.mouseRadius;
+                        const angle = Math.atan2(this.y - mouseY, this.x - mouseX);
+                        
+                        switch (mode) {
+                            case 'attract':
+                                this.vx -= Math.cos(angle) * force * 0.5;
+                                this.vy -= Math.sin(angle) * force * 0.5;
+                                break;
+                            case 'repel':
+                                this.vx += Math.cos(angle) * force * 0.8;
+                                this.vy += Math.sin(angle) * force * 0.8;
+                                break;
+                            case 'orbit':
+                                const perpAngle = angle + Math.PI / 2;
+                                this.vx += Math.cos(perpAngle) * force * 0.3;
+                                this.vy += Math.sin(perpAngle) * force * 0.3;
+                                break;
+                            case 'follow':
+                                this.vx = lerp(this.vx, (mouseX - this.x) * 0.02, 0.1);
+                                this.vy = lerp(this.vy, (mouseY - this.y) * 0.02, 0.1);
+                                break;
+                        }
+                    }
+                }
+
+                // 速度限制
+                const maxSpeed = 5;
+                const speed = Math.sqrt(this.vx ** 2 + this.vy ** 2);
+                if (speed > maxSpeed) {
+                    this.vx = (this.vx / speed) * maxSpeed;
+                    this.vy = (this.vy / speed) * maxSpeed;
+                }
+
+                // 速度衰减
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.5, this.color + '80');
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.burst && this.life <= 0;
+            }
+        }
+
+        // ============ 初始化粒子 ============
+        const particles = [];
+        let currentMode = 0;
+
+        for (let i = 0; i < CONFIG.particleCount; i++) {
+            particles.push(new Particle());
+        }
+
+        // ============ 鼠标状态 ============
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let mouseActive = false;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouseActive = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 粒子爆发
+            for (let i = 0; i < 30; i++) {
+                particles.push(new Particle(e.clientX, e.clientY, true));
+            }
+        });
+
+        canvas.addEventListener('dblclick', () => {
+            // 切换模式
+            currentMode = (currentMode + 1) % CONFIG.modes.length;
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制粒子连线 ============
+        function drawConnections() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p1 = particles[i];
+                    const p2 = particles[j];
+                    
+                    if (p1.burst || p2.burst) continue;
+                    
+                    const dist = distance(p1.x, p1.y, p2.x, p2.y);
+                    
+                    if (dist < CONFIG.connectionDistance) {
+                        const opacity = (1 - dist / CONFIG.connectionDistance) * 0.3;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.strokeStyle = `rgba(100, 200, 255, ${opacity})`;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // ============ 绘制鼠标影响范围 ============
+        function drawMouseArea() {
+            if (!mouseActive) return;
+            
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, CONFIG.mouseRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // 模式指示
+            ctx.fillStyle = 'rgba(100, 200, 255, 0.5)';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(CONFIG.modes[currentMode], mouseX, mouseY - CONFIG.mouseRadius - 10);
+        }
+
+        // ============ 主动画循环 ============
+        function animate() {
+            // 清除画布（带拖尾）
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制连线
+            drawConnections();
+
+            // 绘制鼠标影响范围
+            drawMouseArea();
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update(mouseX, mouseY, mouseActive, CONFIG.modes[currentMode]);
+                particles[i].draw();
+                
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 补充粒子
+            while (particles.filter(p => !p.burst).length < CONFIG.particleCount) {
+                particles.push(new Particle());
+            }
+
+            // 限制爆发粒子数量
+            const burstParticles = particles.filter(p => p.burst);
+            if (burstParticles.length > 200) {
+                const toRemove = burstParticles.slice(0, burstParticles.length - 200);
+                toRemove.forEach(p => {
+                    const idx = particles.indexOf(p);
+                    if (idx > -1) particles.splice(idx, 1);
+                });
+            }
+
+            // 绘制模式指示
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '14px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Mode: ${CONFIG.modes[currentMode]} (双击切换)`, 10, 30);
+            ctx.fillText(`Particles: ${particles.length}`, 10, 50);
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>
