@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>赛博朋克网格 - Cyberpunk Grid</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 0, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="cyberpunk"></canvas>
+    <div class="info">
+        <span>🌐 赛博朋克网格</span>
+        <span>🖱️ 移动鼠标 - 扭曲网格</span>
+        <span>👆 点击 - 能量爆发</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            gridSize: 40,
+            perspective: 500,
+            horizonY: 0.35,
+            colors: {
+                primary: '#FF00FF',
+                secondary: '#00FFFF',
+                accent: '#FFFF00',
+                background: '#0a0010'
+            }
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('cyberpunk');
+        const ctx = canvas.getContext('2d');
+        let width, height, horizon;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            horizon = height * CONFIG.horizonY;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        // ============ 网格点类 ============
+        class GridPoint {
+            constructor(gridX, gridY) {
+                this.gridX = gridX;
+                this.gridY = gridY;
+                this.baseX = 0;
+                this.baseY = 0;
+                this.x = 0;
+                this.y = 0;
+                this.offsetX = 0;
+                this.offsetY = 0;
+            }
+
+            project(time, mouseX, mouseY, mouseActive) {
+                // 将网格坐标转换为屏幕坐标（透视效果）
+                const z = this.gridY * 10;
+                const scale = CONFIG.perspective / (CONFIG.perspective + z);
+                
+                this.baseX = width / 2 + (this.gridX - width / (CONFIG.gridSize * 2)) * scale * 2;
+                this.baseY = horizon + (this.gridY * 5) * scale;
+                
+                // 鼠标扭曲效果
+                if (mouseActive && this.baseY > horizon) {
+                    const dx = this.baseX - mouseX;
+                    const dy = this.baseY - mouseY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const maxDist = 200;
+                    
+                    if (dist < maxDist) {
+                        const force = (1 - dist / maxDist) * 30 * scale;
+                        this.offsetX = (dx / dist) * force;
+                        this.offsetY = (dy / dist) * force * 0.5;
+                    } else {
+                        this.offsetX *= 0.95;
+                        this.offsetY *= 0.95;
+                    }
+                } else {
+                    this.offsetX *= 0.95;
+                    this.offsetY *= 0.95;
+                }
+                
+                // 波动效果
+                const wave = Math.sin(time * 0.002 + this.gridX * 0.1 + this.gridY * 0.1) * 3 * scale;
+                
+                this.x = this.baseX + this.offsetX;
+                this.y = this.baseY + this.offsetY + wave;
+                
+                this.scale = scale;
+            }
+        }
+
+        // ============ 能量爆发粒子 ============
+        class EnergyParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(0, Math.PI * 2);
+                const speed = random(3, 12);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = random(2, 6);
+                this.life = 1;
+                this.decay = random(0.01, 0.025);
+                this.color = Math.random() > 0.5 ? CONFIG.colors.primary : CONFIG.colors.secondary;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = hexToRgba(this.color, this.life);
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 扫描线类 ============
+        class ScanLine {
+            constructor() {
+                this.y = horizon;
+                this.speed = random(2, 4);
+                this.opacity = random(0.3, 0.6);
+                this.color = Math.random() > 0.5 ? CONFIG.colors.primary : CONFIG.colors.secondary;
+            }
+
+            update() {
+                this.y += this.speed;
+                this.opacity *= 0.995;
+            }
+
+            draw() {
+                if (this.opacity < 0.01) return;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, this.y);
+                ctx.lineTo(width, this.y);
+                ctx.strokeStyle = hexToRgba(this.color, this.opacity);
+                ctx.lineWidth = 2;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            isDead() {
+                return this.y > height || this.opacity < 0.01;
+            }
+        }
+
+        // ============ 初始化网格 ============
+        const gridPoints = [];
+        const particles = [];
+        const scanLines = [];
+
+        for (let y = 0; y < CONFIG.gridSize; y++) {
+            for (let x = 0; x < CONFIG.gridSize; x++) {
+                gridPoints.push(new GridPoint(x * CONFIG.gridSize, y));
+            }
+        }
+
+        // ============ 鼠标状态 ============
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let mouseActive = false;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouseActive = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 能量爆发
+            for (let i = 0; i < 40; i++) {
+                particles.push(new EnergyParticle(e.clientX, e.clientY));
+            }
+            
+            // 添加扫描线
+            scanLines.push(new ScanLine());
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#0a0015');
+            gradient.addColorStop(0.3, '#0a0020');
+            gradient.addColorStop(1, '#000005');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 绘制地平线光晕 ============
+        function drawHorizonGlow(time) {
+            const gradient = ctx.createLinearGradient(0, horizon - 100, 0, horizon + 50);
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(0.5, hexToRgba(CONFIG.colors.primary, 0.1 + 0.05 * Math.sin(time * 0.001)));
+            gradient.addColorStop(1, 'transparent');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, horizon - 100, width, 150);
+        }
+
+        // ============ 绘制网格 ============
+        function drawGrid(time) {
+            // 投影所有点
+            gridPoints.forEach(point => {
+                point.project(time, mouseX, mouseY, mouseActive);
+            });
+
+            // 绘制横线
+            ctx.lineWidth = 1;
+            for (let y = 0; y < CONFIG.gridSize; y++) {
+                ctx.beginPath();
+                let started = false;
+                
+                for (let x = 0; x < CONFIG.gridSize; x++) {
+                    const point = gridPoints[y * CONFIG.gridSize + x];
+                    if (point.y > horizon) {
+                        if (!started) {
+                            ctx.moveTo(point.x, point.y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(point.x, point.y);
+                        }
+                    }
+                }
+                
+                if (started) {
+                    const alpha = 0.3 + 0.3 * Math.sin(time * 0.002 + y * 0.2);
+                    ctx.strokeStyle = hexToRgba(CONFIG.colors.primary, alpha);
+                    ctx.shadowColor = CONFIG.colors.primary;
+                    ctx.shadowBlur = 5;
+                    ctx.stroke();
+                }
+            }
+
+            // 绘制纵线
+            for (let x = 0; x < CONFIG.gridSize; x++) {
+                ctx.beginPath();
+                let started = false;
+                
+                for (let y = 0; y < CONFIG.gridSize; y++) {
+                    const point = gridPoints[y * CONFIG.gridSize + x];
+                    if (point.y > horizon) {
+                        if (!started) {
+                            ctx.moveTo(point.x, point.y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(point.x, point.y);
+                        }
+                    }
+                }
+                
+                if (started) {
+                    ctx.strokeStyle = hexToRgba(CONFIG.colors.secondary, 0.3);
+                    ctx.shadowColor = CONFIG.colors.secondary;
+                    ctx.shadowBlur = 5;
+                    ctx.stroke();
+                }
+            }
+            
+            ctx.shadowBlur = 0;
+
+            // 绘制太阳/光源
+            const sunY = horizon - 30 + Math.sin(time * 0.001) * 5;
+            const sunGradient = ctx.createRadialGradient(width / 2, sunY, 0, width / 2, sunY, 100);
+            sunGradient.addColorStop(0, hexToRgba(CONFIG.colors.accent, 0.8));
+            sunGradient.addColorStop(0.3, hexToRgba(CONFIG.colors.primary, 0.4));
+            sunGradient.addColorStop(1, 'transparent');
+            
+            ctx.beginPath();
+            ctx.arc(width / 2, sunY, 100, 0, Math.PI * 2);
+            ctx.fillStyle = sunGradient;
+            ctx.fill();
+            
+            // 太阳核心
+            ctx.beginPath();
+            ctx.arc(width / 2, sunY, 20, 0, Math.PI * 2);
+            ctx.fillStyle = CONFIG.colors.accent;
+            ctx.shadowColor = CONFIG.colors.accent;
+            ctx.shadowBlur = 30;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // ============ 自动扫描线 ============
+        let scanLineTimer = 0;
+        
+        function maybeScanLine() {
+            scanLineTimer++;
+            if (scanLineTimer > 100 && Math.random() < 0.02) {
+                scanLines.push(new ScanLine());
+                scanLineTimer = 0;
+            }
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            drawBackground();
+            drawHorizonGlow(time);
+            drawGrid(time);
+
+            maybeScanLine();
+
+            // 更新和绘制扫描线
+            for (let i = scanLines.length - 1; i >= 0; i--) {
+                scanLines[i].update();
+                scanLines[i].draw();
+                if (scanLines[i].isDead()) {
+                    scanLines.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 限制数量
+            if (particles.length > 150) {
+                particles.splice(0, particles.length - 150);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        animate(0);
+    </script>
+</body>
+</html>
