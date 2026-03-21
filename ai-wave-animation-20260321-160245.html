@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波浪动画 - Wave Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0a1628 0%, #1a3a5c 100%);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 200, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(50, 150, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(100, 200, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="wave"></canvas>
+    <div class="info">
+        <span>🌊 波浪动画</span>
+        <span>🖱️ 移动鼠标 - 控制波浪方向</span>
+        <span>👆 点击 - 产生水波冲击</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            waveCount: 5,
+            waveAmplitude: 40,
+            waveFrequency: 0.02,
+            waveSpeed: 0.03,
+            particleCount: 50,
+            colors: {
+                waves: [
+                    'rgba(0, 119, 182, 0.6)',
+                    'rgba(0, 150, 199, 0.5)',
+                    'rgba(0, 180, 216, 0.4)',
+                    'rgba(72, 202, 228, 0.35)',
+                    'rgba(144, 224, 239, 0.3)'
+                ],
+                particles: ['#00B4D8', '#90E0EF', '#CAF0F8', '#48CAE4'],
+                sky: ['#0a1628', '#1a3a5c'],
+                sun: '#FFD93D'
+            }
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('wave');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor(colors) {
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // ============ 波浪类 ============
+        class Wave {
+            constructor(index, total) {
+                this.index = index;
+                this.total = total;
+                this.baseY = height * 0.5 + index * 40;
+                this.amplitude = CONFIG.waveAmplitude * (1 - index * 0.15);
+                this.frequency = CONFIG.waveFrequency * (1 + index * 0.1);
+                this.speed = CONFIG.waveSpeed * (1 - index * 0.1);
+                this.phase = random(0, Math.PI * 2);
+                this.color = CONFIG.colors.waves[index % CONFIG.colors.waves.length];
+                this.windInfluence = 0;
+            }
+
+            update(time, wind) {
+                this.phase += this.speed;
+                this.windInfluence = wind * (1 - this.index * 0.2);
+            }
+
+            getY(x, time) {
+                const wave1 = Math.sin(x * this.frequency + this.phase) * this.amplitude;
+                const wave2 = Math.sin(x * this.frequency * 0.5 + this.phase * 1.5) * this.amplitude * 0.5;
+                const windEffect = this.windInfluence * Math.sin(x * 0.01 + time * 0.001) * 20;
+                return this.baseY + wave1 + wave2 + windEffect;
+            }
+
+            draw(time) {
+                ctx.beginPath();
+                ctx.moveTo(0, height);
+                
+                // 绘制波浪曲线
+                for (let x = 0; x <= width; x += 5) {
+                    const y = this.getY(x, time);
+                    ctx.lineTo(x, y);
+                }
+                
+                ctx.lineTo(width, height);
+                ctx.closePath();
+                
+                // 渐变填充
+                const gradient = ctx.createLinearGradient(0, this.baseY - this.amplitude, 0, height);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'rgba(0, 50, 100, 0.8)');
+                
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 波浪顶部高光
+                ctx.beginPath();
+                for (let x = 0; x <= width; x += 5) {
+                    const y = this.getY(x, time);
+                    if (x === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        // ============ 水花粒子类 ============
+        class WaterParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(-Math.PI, 0);
+                const speed = random(2, 6);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.size = random(2, 5);
+                this.life = 1;
+                this.decay = random(0.01, 0.03);
+                this.color = randomColor(CONFIG.colors.particles);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.15;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 冲击波类 ============
+        class ShockWave {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 200;
+                this.speed = 5;
+                this.life = 1;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.life = 1 - this.radius / this.maxRadius;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.life * 0.5})`;
+                ctx.lineWidth = 3 * this.life;
+                ctx.stroke();
+                
+                // 内圈
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(100, 200, 255, ${this.life * 0.3})`;
+                ctx.stroke();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 星星类 ============
+        class Star {
+            constructor() {
+                this.x = random(0, width);
+                this.y = random(0, height * 0.4);
+                this.size = random(0.5, 2);
+                this.twinkleSpeed = random(0.02, 0.05);
+                this.phase = random(0, Math.PI * 2);
+            }
+
+            draw(time) {
+                const alpha = 0.3 + 0.7 * Math.abs(Math.sin(time * this.twinkleSpeed + this.phase));
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.fill();
+            }
+        }
+
+        // ============ 月亮/太阳 ============
+        class CelestialBody {
+            constructor() {
+                this.x = width * 0.8;
+                this.y = height * 0.15;
+                this.radius = 50;
+                this.glowRadius = 100;
+            }
+
+            draw() {
+                // 光晕
+                const glow = ctx.createRadialGradient(
+                    this.x, this.y, this.radius,
+                    this.x, this.y, this.glowRadius
+                );
+                glow.addColorStop(0, 'rgba(255, 217, 61, 0.3)');
+                glow.addColorStop(0.5, 'rgba(255, 200, 100, 0.1)');
+                glow.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.glowRadius, 0, Math.PI * 2);
+                ctx.fillStyle = glow;
+                ctx.fill();
+                
+                // 月亮
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#FFF8DC';
+                ctx.fill();
+                
+                // 月球表面纹理
+                ctx.beginPath();
+                ctx.arc(this.x - 10, this.y - 10, 8, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(200, 200, 180, 0.3)';
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(this.x + 15, this.y + 5, 12, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(200, 200, 180, 0.2)';
+                ctx.fill();
+            }
+        }
+
+        // ============ 初始化 ============
+        const waves = [];
+        const particles = [];
+        const shockWaves = [];
+        const stars = [];
+        const moon = new CelestialBody();
+
+        for (let i = 0; i < CONFIG.waveCount; i++) {
+            waves.push(new Wave(i, CONFIG.waveCount));
+        }
+
+        for (let i = 0; i < 100; i++) {
+            stars.push(new Star());
+        }
+
+        let wind = 0;
+        let targetWind = 0;
+
+        // ============ 鼠标交互 ============
+        canvas.addEventListener('mousemove', (e) => {
+            targetWind = (e.clientX - width / 2) / (width / 2) * 2;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            targetWind = 0;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 冲击波
+            shockWaves.push(new ShockWave(e.clientX, e.clientY));
+            
+            // 水花粒子
+            for (let i = 0; i < 30; i++) {
+                particles.push(new WaterParticle(e.clientX, e.clientY));
+            }
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, CONFIG.colors.sky[0]);
+            gradient.addColorStop(1, CONFIG.colors.sky[1]);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 清除画布
+            ctx.clearRect(0, 0, width, height);
+            
+            // 绘制背景
+            drawBackground();
+
+            // 平滑风向
+            wind = lerp(wind, targetWind, 0.05);
+
+            // 绘制星星
+            stars.forEach(star => star.draw(time));
+
+            // 绘制月亮
+            moon.draw();
+
+            // 更新和绘制波浪（从后往前）
+            for (let i = waves.length - 1; i >= 0; i--) {
+                waves[i].update(time, wind);
+                waves[i].draw(time);
+            }
+
+            // 更新和绘制冲击波
+            for (let i = shockWaves.length - 1; i >= 0; i--) {
+                shockWaves[i].update();
+                shockWaves[i].draw();
+                if (shockWaves[i].isDead()) {
+                    shockWaves.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 自动生成漂浮粒子
+            if (Math.random() < 0.05) {
+                particles.push(new WaterParticle(
+                    random(0, width),
+                    height * 0.5 + random(-20, 20)
+                ));
+            }
+
+            // 限制粒子数量
+            if (particles.length > 200) {
+                particles.splice(0, particles.length - 200);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>
