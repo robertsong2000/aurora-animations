@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水波纹 - Water Ripple</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #001122 0%, #002244 50%, #001133 100%);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 200, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(100, 200, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="ripple"></canvas>
+    <div class="info">
+        <span>💧 水波纹</span>
+        <span>🖱️ 移动鼠标 - 产生涟漪</span>
+        <span>👆 点击 - 大波纹扩散</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            rippleSpeed: 2,
+            maxRadius: 300,
+            fadeSpeed: 0.015,
+            colors: [
+                { r: 100, g: 200, b: 255 },
+                { r: 150, g: 220, b: 255 },
+                { r: 80, g: 180, b: 255 },
+                { r: 120, g: 210, b: 255 },
+            ],
+            autoRipple: true,
+            autoRippleInterval: 2000
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('ripple');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function toRgba(color, alpha) {
+            return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+        }
+
+        // ============ 波纹类 ============
+        class Ripple {
+            constructor(x, y, maxRadius = CONFIG.maxRadius) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = maxRadius;
+                this.speed = CONFIG.rippleSpeed + random(-0.5, 0.5);
+                this.life = 1;
+                this.color = CONFIG.colors[Math.floor(random(0, CONFIG.colors.length))];
+                this.rings = Math.floor(random(3, 6));
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.life = Math.max(0, 1 - this.radius / this.maxRadius);
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                for (let i = 0; i < this.rings; i++) {
+                    const ringRadius = Math.max(0, this.radius - i * 15);
+                    if (ringRadius <= 0) continue;
+                    
+                    const ringLife = this.life * (1 - i * 0.15);
+                    if (ringLife <= 0) continue;
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, ringRadius, 0, Math.PI * 2);
+                    ctx.strokeStyle = toRgba(this.color, ringLife * 0.6);
+                    ctx.lineWidth = 3 - i * 0.5;
+                    ctx.stroke();
+                }
+
+                // 中心发光
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, Math.min(50, this.radius)
+                );
+                gradient.addColorStop(0, toRgba(this.color, this.life * 0.3));
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, Math.min(50, this.radius), 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 水滴粒子 ============
+        class WaterDrop {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = random(0, width);
+                this.y = random(-50, -10);
+                this.size = random(2, 5);
+                this.speed = random(2, 5);
+                this.color = CONFIG.colors[Math.floor(random(0, CONFIG.colors.length))];
+            }
+
+            update() {
+                this.y += this.speed;
+                this.x += Math.sin(this.y * 0.02) * 0.5;
+            }
+
+            draw() {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                gradient.addColorStop(0, toRgba(this.color, 0.8));
+                gradient.addColorStop(0.5, toRgba(this.color, 0.4));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+
+            checkSplash() {
+                if (this.y > height * 0.7) {
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // ============ 光斑类 ============
+        class LightSpot {
+            constructor() {
+                this.x = random(0, width);
+                this.y = random(0, height);
+                this.size = random(50, 150);
+                this.color = CONFIG.colors[Math.floor(random(0, CONFIG.colors.length))];
+                this.phase = random(0, Math.PI * 2);
+                this.speed = random(0.005, 0.015);
+                this.moveAngle = random(0, Math.PI * 2);
+                this.moveSpeed = random(0.1, 0.3);
+            }
+
+            update() {
+                this.phase += this.speed;
+                this.x += Math.cos(this.moveAngle) * this.moveSpeed;
+                this.y += Math.sin(this.moveAngle) * this.moveSpeed;
+                
+                if (this.x < -this.size) this.x = width + this.size;
+                if (this.x > width + this.size) this.x = -this.size;
+                if (this.y < -this.size) this.y = height + this.size;
+                if (this.y > height + this.size) this.y = -this.size;
+            }
+
+            draw() {
+                const opacity = 0.05 + 0.03 * Math.sin(this.phase);
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size
+                );
+                gradient.addColorStop(0, toRgba(this.color, opacity));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+
+        // ============ 初始化 ============
+        const ripples = [];
+        const waterDrops = [];
+        const lightSpots = [];
+
+        // 创建光斑
+        for (let i = 0; i < 15; i++) {
+            lightSpots.push(new LightSpot());
+        }
+
+        // 创建初始水滴
+        for (let i = 0; i < 10; i++) {
+            const drop = new WaterDrop();
+            drop.y = random(0, height);
+            waterDrops.push(drop);
+        }
+
+        // ============ 鼠标交互 ============
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let mouseTimer = 0;
+
+        canvas.addEventListener('mousemove', (e) => {
+            const dist = Math.sqrt((e.clientX - lastMouseX) ** 2 + (e.clientY - lastMouseY) ** 2);
+            
+            if (dist > 30) {
+                ripples.push(new Ripple(e.clientX, e.clientY, 150));
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            ripples.push(new Ripple(e.clientX, e.clientY, 400));
+            
+            // 多重波纹
+            setTimeout(() => {
+                ripples.push(new Ripple(e.clientX + random(-20, 20), e.clientY + random(-20, 20), 300));
+            }, 100);
+            setTimeout(() => {
+                ripples.push(new Ripple(e.clientX + random(-20, 20), e.clientY + random(-20, 20), 250));
+            }, 200);
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 自动产生波纹 ============
+        let autoRippleTimer = 0;
+
+        function autoRipple(time) {
+            if (!CONFIG.autoRipple) return;
+            
+            autoRippleTimer++;
+            if (autoRippleTimer > CONFIG.autoRippleInterval / 16) {
+                autoRippleTimer = 0;
+                if (Math.random() < 0.3) {
+                    ripples.push(new Ripple(
+                        random(width * 0.1, width * 0.9),
+                        random(height * 0.3, height * 0.7),
+                        random(100, 200)
+                    ));
+                }
+            }
+        }
+
+        // ============ 绘制水面 ============
+        function drawWaterSurface() {
+            // 水面渐变
+            const gradient = ctx.createLinearGradient(0, height * 0.7, 0, height);
+            gradient.addColorStop(0, 'rgba(0, 40, 80, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(0, 60, 120, 0.5)');
+            gradient.addColorStop(1, 'rgba(0, 30, 60, 0.7)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, height * 0.7, width, height * 0.3);
+
+            // 水面反光线
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.2)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 5; i++) {
+                const y = height * 0.72 + i * 15;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                for (let x = 0; x < width; x += 20) {
+                    ctx.lineTo(x, y + Math.sin(x * 0.02 + i) * 3);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 清除画布（带拖尾）
+            ctx.fillStyle = 'rgba(0, 17, 34, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制光斑
+            lightSpots.forEach(spot => {
+                spot.update();
+                spot.draw();
+            });
+
+            // 自动波纹
+            autoRipple(time);
+
+            // 更新和绘制波纹
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                ripples[i].update();
+                ripples[i].draw();
+                if (ripples[i].isDead()) {
+                    ripples.splice(i, 1);
+                }
+            }
+
+            // 更新和绘制水滴
+            for (let i = waterDrops.length - 1; i >= 0; i--) {
+                waterDrops[i].update();
+                waterDrops[i].draw();
+                
+                if (waterDrops[i].checkSplash()) {
+                    // 创建溅落波纹
+                    ripples.push(new Ripple(waterDrops[i].x, height * 0.72, 100));
+                    waterDrops[i].reset();
+                }
+            }
+
+            // 绘制水面
+            drawWaterSurface();
+
+            // 限制波纹数量
+            if (ripples.length > 50) {
+                ripples.splice(0, ripples.length - 50);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>

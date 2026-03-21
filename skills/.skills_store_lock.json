@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "superpowers": {
+      "name": "Superpowers Dev Workflow",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=superpowers",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "brainstorming-design-workflow": {
+      "name": "Brainstorming",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=brainstorming-design-workflow",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "tencent-finance-stock-price": {
+      "name": "tencent-finance-stock-price",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=tencent-finance-stock-price",
+      "source": "skillhub",
+      "version": "1.1.0"
+    },
+    "investment-analyst": {
+      "name": "Investment Analyst",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=investment-analyst",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "agent-knowledge": {
+      "name": "Agent Knowledge Capture",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=agent-knowledge",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "agent-browser-core": {
+      "name": "Agent Browser Core",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=agent-browser-core",
+      "source": "skillhub",
+      "version": "1.0.1"
+    },
+    "larry": {
+      "name": "Larry",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=larry",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "agent-browser": {
+      "name": "Agent Browser",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=agent-browser",
+      "source": "skillhub",
+      "version": "0.2.0"
+    },
+    "summarize": {
+      "name": "Summarize",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=summarize",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "multi-search-engine": {
+      "name": "Multi Search Engine",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=multi-search-engine",
+      "source": "skillhub",
+      "version": "2.0.1"
+    }
+  }
+}

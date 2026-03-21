@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "skills": {
+    "fund-advisor": {
+      "version": "0.0.9",
+      "installedAt": 1773066126864
+    },
+    "superpowers": {
+      "version": "1.0.0",
+      "installedAt": 1773653130344
+    },
+    "brainstorming-design-workflow": {
+      "version": "1.0.0",
+      "installedAt": 1773653480681
+    },
+    "tencent-finance-stock-price": {
+      "version": "1.1.0",
+      "installedAt": 1773795613563
+    },
+    "investment-analyst": {
+      "version": "1.0.0",
+      "installedAt": 1773795743532
+    },
+    "agent-knowledge": {
+      "version": "1.0.0",
+      "installedAt": 1773803708025
+    },
+    "agent-browser-core": {
+      "version": "1.0.1",
+      "installedAt": 1773810870861
+    },
+    "larry": {
+      "version": "1.0.0",
+      "installedAt": 1773824905518
+    },
+    "agent-browser": {
+      "version": "0.2.0",
+      "installedAt": 1774024221779
+    },
+    "summarize": {
+      "version": "1.0.0",
+      "installedAt": 1774024222476
+    },
+    "multi-search-engine": {
+      "version": "2.0.1",
+      "installedAt": 1774024223391
+    }
+  }
+}
