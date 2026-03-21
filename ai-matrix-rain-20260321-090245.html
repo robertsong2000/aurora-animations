@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矩阵雨 - Matrix Rain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 65, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+            font-family: 'Courier New', monospace;
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 65, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+
+        .glitch-text {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(0, 255, 65, 0.15);
+            font-size: 80px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            pointer-events: none;
+            z-index: 1;
+            text-shadow: 
+                2px 2px rgba(255, 0, 0, 0.3),
+                -2px -2px rgba(0, 255, 255, 0.3);
+            animation: glitch 2s infinite;
+        }
+
+        @keyframes glitch {
+            0%, 90%, 100% { opacity: 0.15; }
+            92% { opacity: 0.3; transform: translate(-50%, -50%) translateX(5px); }
+            94% { opacity: 0.2; transform: translate(-50%, -50%) translateX(-5px); }
+            96% { opacity: 0.3; transform: translate(-50%, -50%); }
+        }
+    </style>
+</head>
+<body>
+    <div class="glitch-text">MATRIX</div>
+    <canvas id="matrix"></canvas>
+    <div class="info">
+        <span>💚 矩阵雨</span>
+        <span>🖱️ 移动鼠标 - 吸引字符</span>
+        <span>👆 点击 - 字符爆发</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            fontSize: 16,
+            fontFamily: 'Courier New, monospace',
+            baseSpeed: 0.5,
+            color: {
+                primary: '#0F0',       // 主绿色
+                bright: '#0F0',        // 亮绿色
+                dim: '#050',           // 暗绿色
+                glow: 'rgba(0, 255, 0, 0.8)'
+            },
+            characters: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+            trailLength: 20,
+            mouseRadius: 150
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        let width, height, columns, rows;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            columns = Math.floor(width / CONFIG.fontSize);
+            rows = Math.floor(height / CONFIG.fontSize);
+            initColumns();
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomChar() {
+            return CONFIG.characters[Math.floor(Math.random() * CONFIG.characters.length)];
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        // ============ 列类 ============
+        class Column {
+            constructor(x) {
+                this.x = x;
+                this.chars = [];
+                this.speed = random(CONFIG.baseSpeed * 0.5, CONFIG.baseSpeed * 2);
+                this.baseSpeed = this.speed;
+                this.maxChars = Math.floor(random(5, 25));
+                this.spawnTimer = 0;
+                this.spawnDelay = random(0, 100);
+                this.active = Math.random() > 0.3;
+            }
+
+            update(mouseX, mouseY, mouseActive) {
+                if (!this.active) {
+                    this.spawnTimer++;
+                    if (this.spawnTimer > this.spawnDelay + random(50, 200)) {
+                        this.active = true;
+                        this.spawnTimer = 0;
+                        this.chars = [];
+                    }
+                    return;
+                }
+
+                // 鼠标影响
+                const colX = this.x * CONFIG.fontSize;
+                let speedMod = 1;
+                
+                if (mouseActive) {
+                    const dist = distance(colX, height / 2, mouseX, mouseY);
+                    if (dist < CONFIG.mouseRadius) {
+                        speedMod = 0.3;
+                    }
+                }
+                
+                this.speed = this.baseSpeed * speedMod;
+
+                // 生成新字符
+                this.spawnTimer++;
+                if (this.spawnTimer > 5 / this.speed && this.chars.length < this.maxChars) {
+                    this.chars.push(new MatrixChar(this.x, -1));
+                    this.spawnTimer = 0;
+                }
+
+                // 更新字符
+                for (let i = this.chars.length - 1; i >= 0; i--) {
+                    const char = this.chars[i];
+                    char.update(this.speed, mouseX, mouseY, mouseActive);
+                    
+                    if (char.y > rows + 5) {
+                        this.chars.splice(i, 1);
+                    }
+                }
+
+                // 检查是否需要重置
+                if (this.chars.length === 0 && Math.random() < 0.01) {
+                    this.active = false;
+                    this.spawnTimer = 0;
+                    this.spawnDelay = random(0, 100);
+                }
+            }
+
+            draw() {
+                this.chars.forEach((char, index) => {
+                    const isHead = index === this.chars.length - 1;
+                    const alpha = isHead ? 1 : 0.3 + (index / this.chars.length) * 0.5;
+                    char.draw(isHead, alpha);
+                });
+            }
+        }
+
+        // ============ 矩阵字符类 ============
+        class MatrixChar {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.char = randomChar();
+                this.changeTimer = 0;
+                this.changeInterval = random(5, 20);
+                this.offsetX = 0;
+                this.offsetY = 0;
+            }
+
+            update(speed, mouseX, mouseY, mouseActive) {
+                this.y += speed;
+                this.changeTimer++;
+                
+                if (this.changeTimer > this.changeInterval) {
+                    if (Math.random() < 0.1) {
+                        this.char = randomChar();
+                    }
+                    this.changeTimer = 0;
+                }
+
+                // 鼠标吸引效果
+                if (mouseActive) {
+                    const charX = this.x * CONFIG.fontSize;
+                    const charY = this.y * CONFIG.fontSize;
+                    const dist = distance(charX, charY, mouseX, mouseY);
+                    
+                    if (dist < CONFIG.mouseRadius && dist > 0) {
+                        const force = (CONFIG.mouseRadius - dist) / CONFIG.mouseRadius;
+                        const angle = Math.atan2(mouseY - charY, mouseX - charX);
+                        this.offsetX += Math.cos(angle) * force * 2;
+                        this.offsetY += Math.sin(angle) * force * 2;
+                    }
+                }
+                
+                this.offsetX *= 0.95;
+                this.offsetY *= 0.95;
+            }
+
+            draw(isHead, alpha) {
+                const x = this.x * CONFIG.fontSize + this.offsetX;
+                const y = this.y * CONFIG.fontSize + this.offsetY;
+
+                if (isHead) {
+                    // 头部字符发光
+                    ctx.shadowColor = CONFIG.color.glow;
+                    ctx.shadowBlur = 20;
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = `bold ${CONFIG.fontSize}px ${CONFIG.fontFamily}`;
+                } else {
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+                    ctx.font = `${CONFIG.fontSize}px ${CONFIG.fontFamily}`;
+                }
+
+                ctx.fillText(this.char, x, y);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ============ 爆发粒子 ============
+        class BurstParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                const angle = random(0, Math.PI * 2);
+                const speed = random(3, 15);
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.char = randomChar();
+                this.life = 1;
+                this.decay = random(0.01, 0.03);
+                this.size = random(12, 24);
+                this.rotation = random(0, Math.PI * 2);
+                this.rotationSpeed = random(-0.1, 0.1);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                this.vy += 0.1;
+                this.life -= this.decay;
+                this.rotation += this.rotationSpeed;
+                
+                if (Math.random() < 0.1) {
+                    this.char = randomChar();
+                }
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                
+                ctx.shadowColor = CONFIG.color.glow;
+                ctx.shadowBlur = 10 * this.life;
+                ctx.fillStyle = `rgba(0, 255, 65, ${this.life})`;
+                ctx.font = `bold ${this.size}px ${CONFIG.fontFamily}`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.char, 0, 0);
+                
+                ctx.restore();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // ============ 初始化列 ============
+        let columns_arr = [];
+        
+        function initColumns() {
+            columns_arr = [];
+            for (let i = 0; i < columns; i++) {
+                columns_arr.push(new Column(i));
+            }
+        }
+        
+        initColumns();
+
+        // 粒子数组
+        const burstParticles = [];
+
+        // ============ 鼠标交互 ============
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let mouseActive = false;
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouseActive = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 字符爆发
+            for (let i = 0; i < 50; i++) {
+                burstParticles.push(new BurstParticle(e.clientX, e.clientY));
+            }
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制扫描线效果 ============
+        function drawScanlines() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+            for (let i = 0; i < height; i += 4) {
+                ctx.fillRect(0, i, width, 2);
+            }
+        }
+
+        // ============ 绘制边缘渐变 ============
+        function drawVignette() {
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, Math.min(width, height) * 0.3,
+                width / 2, height / 2, Math.max(width, height) * 0.8
+            );
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 半透明清除（产生拖尾效果）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 更新和绘制列
+            columns_arr.forEach(col => {
+                col.update(mouseX, mouseY, mouseActive);
+                col.draw();
+            });
+
+            // 更新和绘制爆发粒子
+            for (let i = burstParticles.length - 1; i >= 0; i--) {
+                burstParticles[i].update();
+                burstParticles[i].draw();
+                if (burstParticles[i].isDead()) {
+                    burstParticles.splice(i, 1);
+                }
+            }
+
+            // 限制粒子数量
+            if (burstParticles.length > 200) {
+                burstParticles.splice(0, burstParticles.length - 200);
+            }
+
+            // 绘制扫描线
+            drawScanlines();
+
+            // 绘制边缘渐变
+            drawVignette();
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 可以在这里暂停动画
+            }
+        });
+    </script>
+</body>
+</html>
