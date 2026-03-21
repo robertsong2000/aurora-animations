@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星空效果 - Starry Sky</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(200, 200, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="stars"></canvas>
+    <div class="info">
+        <span>🌟 星空效果</span>
+        <span>🖱️ 移动鼠标 - 视差滚动</span>
+        <span>👆 点击 - 流星划过</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            starLayers: [
+                { count: 100, sizeRange: [0.5, 1], speed: 0.1, parallax: 0.01 },
+                { count: 80, sizeRange: [1, 2], speed: 0.15, parallax: 0.02 },
+                { count: 50, sizeRange: [1.5, 3], speed: 0.2, parallax: 0.03 }
+            ],
+            nebulaCount: 5,
+            colors: ['#FFFFFF', '#E8E8FF', '#C8C8FF', '#A8D8FF', '#FFF8E8']
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('stars');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor() {
+            return CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // ============ 星星类 ============
+        class Star {
+            constructor(layerConfig) {
+                this.layerConfig = layerConfig;
+                this.baseX = random(0, width);
+                this.baseY = random(0, height);
+                this.x = this.baseX;
+                this.y = this.baseY;
+                this.size = random(...layerConfig.sizeRange);
+                this.twinkleSpeed = random(0.02, 0.05);
+                this.twinklePhase = random(0, Math.PI * 2);
+                this.color = randomColor();
+                this.opacity = random(0.5, 1);
+            }
+
+            update(time, offsetX, offsetY) {
+                this.x = this.baseX + offsetX * this.layerConfig.parallax * 100;
+                this.y = this.baseY + offsetY * this.layerConfig.parallax * 100;
+                this.currentOpacity = this.opacity * (0.5 + 0.5 * Math.sin(time * this.twinkleSpeed + this.twinklePhase));
+            }
+
+            draw() {
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 2);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.currentOpacity;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // ============ 流星类 ============
+        class ShootingStar {
+            constructor(startX, startY) {
+                this.x = startX !== undefined ? startX : random(0, width);
+                this.y = startY !== undefined ? startY : random(0, height * 0.3);
+                this.length = random(80, 150);
+                this.speed = random(15, 25);
+                this.angle = random(Math.PI * 0.15, Math.PI * 0.35);
+                this.opacity = 1;
+                this.trail = [];
+            }
+
+            update() {
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > 20) this.trail.shift();
+
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+
+                if (this.x > width + 100 || this.y > height + 100) {
+                    this.opacity = 0;
+                }
+            }
+
+            draw() {
+                if (this.opacity <= 0) return;
+
+                if (this.trail.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.lineTo(this.x, this.y);
+                    
+                    const gradient = ctx.createLinearGradient(
+                        this.trail[0].x, this.trail[0].y,
+                        this.x, this.y
+                    );
+                    gradient.addColorStop(0, 'transparent');
+                    gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.5)');
+                    gradient.addColorStop(1, 'rgba(255, 255, 255, 1)');
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                const headGradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 15);
+                headGradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                headGradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 15, 0, Math.PI * 2);
+                ctx.fillStyle = headGradient;
+                ctx.fill();
+            }
+
+            isDead() {
+                return this.opacity <= 0;
+            }
+        }
+
+        // ============ 星云类 ============
+        class Nebula {
+            constructor() {
+                this.x = random(0, width);
+                this.y = random(0, height);
+                this.size = random(100, 300);
+                this.hue = random(200, 280);
+                this.opacity = random(0.03, 0.08);
+                this.rotation = random(0, Math.PI * 2);
+                this.rotationSpeed = random(-0.0005, 0.0005);
+            }
+
+            update(time) {
+                this.rotation += this.rotationSpeed;
+            }
+
+            draw(offsetX, offsetY) {
+                const x = this.x + offsetX * 0.005;
+                const y = this.y + offsetY * 0.005;
+                
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, this.size);
+                gradient.addColorStop(0, `hsla(${this.hue}, 70%, 60%, ${this.opacity})`);
+                gradient.addColorStop(0.5, `hsla(${this.hue + 20}, 60%, 50%, ${this.opacity * 0.5})`);
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(x, y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+
+        // ============ 初始化 ============
+        const starLayers = CONFIG.starLayers.map(layerConfig => 
+            Array.from({ length: layerConfig.count }, () => new Star(layerConfig))
+        );
+        
+        const nebulae = Array.from({ length: CONFIG.nebulaCount }, () => new Nebula());
+        const shootingStars = [];
+
+        let offsetX = 0;
+        let offsetY = 1;
+        let targetOffsetX = 0;
+        let targetOffsetY = 0;
+
+        // ============ 鼠标交互 ============
+        canvas.addEventListener('mousemove', (e) => {
+            targetOffsetX = (e.clientX - width / 2) / (width / 2);
+            targetOffsetY = (e.clientY - height / 2) / (height / 2);
+        });
+
+        canvas.addEventListener('click', (e) => {
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    shootingStars.push(new ShootingStar(
+                        e.clientX + random(-100, 100),
+                        e.clientY - random(50, 150)
+                    ));
+                }, i * 200);
+            }
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            const gradient = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, Math.max(width, height));
+            gradient.addColorStop(0, '#0a0a1a');
+            gradient.addColorStop(0.5, '#050510');
+            gradient.addColorStop(1, '#000005');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 自动流星 ============
+        let autoMeteorTimer = 0;
+        
+        function maybeShootingStar() {
+            autoMeteorTimer++;
+            if (autoMeteorTimer > 300 && Math.random() < 0.01) {
+                shootingStars.push(new ShootingStar());
+                autoMeteorTimer = 1;
+            }
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            drawBackground();
+
+            offsetX = lerp(offsetX, targetOffsetX, 1.05);
+            offsetY = lerp(offsetY, targetOffsetY, 1.05);
+
+            nebulae.forEach(nebula => {
+                nebula.update(time);
+                nebula.draw(offsetX, offsetY);
+            });
+
+            starLayers.forEach(layer => {
+                layer.forEach(star => {
+                    star.update(time, offsetX, offsetY);
+                    star.draw();
+                });
+            });
+
+            maybeShootingStar();
+
+            for (let i = shootingStars.length - 1; i >= 0; i--) {
+                shootingStars[i].update();
+                shootingStars[i].draw();
+                if (shootingStars[i].isDead()) {
+                    shootingStars.splice(i, 1);
+                }
+            }
+
+            if (shootingStars.length > 10) {
+                shootingStars.splice(1, shootingStars.length - 10);
+            }
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        animate(1);
+    </script>
+</body>
+</html>
