@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子漩涡 - Particle Vortex</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a15;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(150, 200, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(100, 150, 255, 0.5);
+        }
+        
+        .info span {
+            display: block;
+            margin: 5px 0;
+        }
+        
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(150, 200, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="vortex"></canvas>
+    <div class="info">
+        <span>🌀 粒子漩涡</span>
+        <span>🖱️ 移动鼠标 - 控制漩涡中心</span>
+        <span>👆 点击 - 粒子爆发</span>
+        <span>🎨 双击 - 切换颜色主题</span>
+    </div>
+    <div class="fps-counter" id="fps">FPS: 60</div>
+
+    <script>
+        // ============ 配置 ============
+        const CONFIG = {
+            particleCount: 300,
+            vortexSpeed: 0.002,
+            maxSpeed: 4,
+            trailLength: 0.15,
+            colorThemes: [
+                ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'],
+                ['#667EEA', '#764BA2', '#F093FB', '#F5576C', '#4FACFE'],
+                ['#00C9FF', '#92FE9D', '#FAD961', '#F76B1C', '#00C9FF'],
+                ['#FF0080', '#7928CA', '#FF0080', '#FF4D4D', '#7928CA']
+            ]
+        };
+
+        // ============ Canvas 设置 ============
+        const canvas = document.getElementById('vortex');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        resize();
+        window.addEventListener('resize', resize);
+
+        // ============ 工具函数 ============
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomColor(theme) {
+            const colors = CONFIG.colorThemes[theme];
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // ============ 粒子类 ============
+        class Particle {
+            constructor(theme, burst = false, x, y) {
+                this.reset(theme, burst, x, y);
+            }
+
+            reset(theme, burst = false, startX, startY) {
+                this.theme = theme;
+                
+                if (burst && startX !== undefined) {
+                    this.x = startX;
+                    this.y = startY;
+                    const angle = random(0, Math.PI * 2);
+                    const speed = random(3, 10);
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                    this.burst = true;
+                    this.life = 1;
+                    this.decay = random(0.01, 0.03);
+                } else {
+                    const angle = random(0, Math.PI * 2);
+                    const distance = random(50, Math.min(width, height) * 0.4);
+                    this.x = centerX + Math.cos(angle) * distance;
+                    this.y = centerY + Math.sin(angle) * distance;
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.burst = false;
+                    this.life = 1;
+                    this.decay = 0;
+                }
+                
+                this.size = random(1.5, 4);
+                this.color = randomColor(theme);
+                this.angle = random(0, Math.PI * 2);
+                this.orbitSpeed = random(0.01, 0.03) * (Math.random() > 0.5 ? 1 : -1);
+                this.orbitRadius = random(0, 50);
+            }
+
+            update(vortexX, vortexY, time) {
+                if (this.burst) {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.vx *= 0.98;
+                    this.vy *= 0.98;
+                    this.life -= this.decay;
+                    return;
+                }
+
+                // 计算到漩涡中心的距离和角度
+                const dx = vortexX - this.x;
+                const dy = vortexY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+
+                // 漩涡吸引力（距离越远吸引力越强）
+                const pullStrength = Math.min(distance * 0.0005, 0.1);
+                
+                // 切向速度（产生旋转）
+                const tangentAngle = angle + Math.PI / 2;
+                const tangentStrength = CONFIG.vortexSpeed * distance * 0.1;
+
+                // 更新速度
+                this.vx += Math.cos(angle) * pullStrength;
+                this.vy += Math.sin(angle) * pullStrength;
+                this.vx += Math.cos(tangentAngle) * tangentStrength;
+                this.vy += Math.sin(tangentAngle) * tangentStrength;
+
+                // 添加轨道运动
+                this.angle += this.orbitSpeed;
+                this.x += Math.cos(this.angle) * this.orbitRadius * 0.01;
+                this.y += Math.sin(this.angle) * this.orbitRadius * 0.01;
+
+                // 限制速度
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > CONFIG.maxSpeed) {
+                    this.vx = (this.vx / speed) * CONFIG.maxSpeed;
+                    this.vy = (this.vy / speed) * CONFIG.maxSpeed;
+                }
+
+                // 应用速度
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // 阻尼
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+
+                // 如果太靠近中心，重置到外围
+                if (distance < 20) {
+                    const newAngle = random(0, Math.PI * 2);
+                    const newDistance = random(150, Math.min(width, height) * 0.4);
+                    this.x = vortexX + Math.cos(newAngle) * newDistance;
+                    this.y = vortexY + Math.sin(newAngle) * newDistance;
+                    this.vx = 0;
+                    this.vy = 0;
+                }
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 4
+                );
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.4, hexToRgba(this.color, 0.4 * this.life));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 4, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.life;
+                ctx.fill();
+
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.burst && this.life <= 0;
+            }
+        }
+
+        // ============ 初始化 ============
+        let currentTheme = 0;
+        const particles = [];
+
+        for (let i = 0; i < CONFIG.particleCount; i++) {
+            particles.push(new Particle(currentTheme));
+        }
+
+        // ============ 鼠标状态 ============
+        let vortexX = centerX;
+        let vortexY = centerY;
+        let targetVortexX = centerX;
+        let targetVortexY = centerY;
+
+        canvas.addEventListener('mousemove', (e) => {
+            targetVortexX = e.clientX;
+            targetVortexY = e.clientY;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            targetVortexX = centerX;
+            targetVortexY = centerY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 粒子爆发
+            for (let i = 0; i < 40; i++) {
+                particles.push(new Particle(currentTheme, true, e.clientX, e.clientY));
+            }
+        });
+
+        canvas.addEventListener('dblclick', () => {
+            // 切换主题
+            currentTheme = (currentTheme + 1) % CONFIG.colorThemes.length;
+            
+            // 更新现有粒子颜色
+            particles.forEach(p => {
+                if (!p.burst) {
+                    p.color = randomColor(currentTheme);
+                }
+            });
+        });
+
+        // ============ FPS 计算 ============
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let fps = 60;
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsTime = now;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+        }
+
+        // ============ 绘制漩涡中心 ============
+        function drawVortexCenter(time) {
+            const pulse = Math.sin(time * 0.003) * 0.3 + 1;
+            const colors = CONFIG.colorThemes[currentTheme];
+            
+            // 外圈光晕
+            for (let i = 3; i >= 0; i--) {
+                const radius = (30 + i * 20) * pulse;
+                const gradient = ctx.createRadialGradient(
+                    vortexX, vortexY, 0,
+                    vortexX, vortexY, radius
+                );
+                gradient.addColorStop(0, hexToRgba(colors[i % colors.length], 0.3));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(vortexX, vortexY, radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+
+            // 核心
+            ctx.beginPath();
+            ctx.arc(vortexX, vortexY, 5 * pulse, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = colors[0];
+            ctx.shadowBlur = 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // ============ 绘制背景 ============
+        function drawBackground() {
+            ctx.fillStyle = `rgba(10, 10, 21, ${CONFIG.trailLength})`;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ============ 主动画循环 ============
+        function animate(time) {
+            // 绘制背景（带拖尾）
+            drawBackground();
+
+            // 平滑移动漩涡中心
+            vortexX = lerp(vortexX, targetVortexX, 0.08);
+            vortexY = lerp(vortexY, targetVortexY, 0.08);
+
+            // 绘制漩涡中心
+            drawVortexCenter(time);
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update(vortexX, vortexY, time);
+                particles[i].draw();
+                
+                if (particles[i].isDead()) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 补充粒子
+            while (particles.filter(p => !p.burst).length < CONFIG.particleCount) {
+                particles.push(new Particle(currentTheme));
+            }
+
+            // 限制爆发粒子数量
+            const burstCount = particles.filter(p => p.burst).length;
+            if (burstCount > 200) {
+                const toRemove = burstCount - 200;
+                let removed = 0;
+                for (let i = particles.length - 1; i >= 0 && removed < toRemove; i--) {
+                    if (particles[i].burst) {
+                        particles.splice(i, 1);
+                        removed++;
+                    }
+                }
+            }
+
+            // 绘制主题指示
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.font = '12px monospace';
+            ctx.fillText(`Theme: ${currentTheme + 1}/${CONFIG.colorThemes.length}`, 10, 30);
+
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate(0);
+
+        // ============ 性能优化 ============
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时可以暂停
+            }
+        });
+    </script>
+</body>
+</html>
