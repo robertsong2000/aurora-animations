@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹网格 | Neon Grid</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: glitch 5s infinite;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 700;
+            color: #0ff;
+            text-shadow: 
+                0 0 10px #0ff,
+                0 0 20px #0ff,
+                0 0 40px #0ff,
+                0 0 80px #0ff;
+            letter-spacing: 0.2em;
+            margin-bottom: 20px;
+        }
+
+        @keyframes glitch {
+            0%, 90%, 100% {
+                text-shadow: 
+                    0 0 10px #0ff,
+                    0 0 20px #0ff,
+                    0 0 40px #0ff;
+            }
+            92% {
+                text-shadow: 
+                    -2px 0 #f0f,
+                    2px 0 #0ff;
+            }
+            94% {
+                text-shadow: 
+                    2px 0 #f0f,
+                    -2px 0 #0ff;
+            }
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            color: #f0f;
+            text-shadow: 0 0 10px #f0f;
+            letter-spacing: 0.3em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #0ff;
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 1px solid #0ff;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #0ff;
+            color: #0ff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+
+        .control-btn.active {
+            background: rgba(0, 255, 255, 0.3);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="modeBtn">脉冲模式</button>
+        <button class="control-btn" id="colorBtn">青色</button>
+    </div>
+    
+    <div class="title">
+        <h1>霓虹网格</h1>
+        <div class="subtitle">赛博朋克的幻想</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标激活网格节点 · 点击创建脉冲波 · 滚轮调整网格密度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>节点数: <span id="nodes">0</span></div>
+        <div>密度: <span id="density">40</span>px</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const nodesCounter = document.getElementById('nodes');
+        const densityDisplay = document.getElementById('density');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let gridSpacing = 40;
+        let currentMode = 0;
+        let currentColor = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 网格系统
+        const nodes = [];
+        const pulses = [];
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+
+        // 颜色方案
+        const colors = [
+            { name: '青色', primary: '#0ff', secondary: '#f0f' },
+            { name: '紫色', primary: '#f0f', secondary: '#0ff' },
+            { name: '绿色', primary: '#0f0', secondary: '#ff0' },
+            { name: '橙色', primary: '#f80', secondary: '#f0f' }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initGrid();
+        }
+
+        // 节点类
+        class Node {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x;
+                this.baseY = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = 2;
+                this.activated = false;
+                this.activationLevel = 0;
+                this.neighbors = [];
+            }
+
+            addNeighbor(node) {
+                this.neighbors.push(node);
+            }
+
+            update() {
+                // 鼠标影响
+                const dx = mouseX - this.x;
+                const dy = mouseY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 150) {
+                    this.activated = true;
+                    this.activationLevel = Math.min(1, this.activationLevel + 0.1);
+                    
+                    // 轻微排斥
+                    const force = (150 - dist) / 150 * 0.5;
+                    this.vx -= dx * force * 0.01;
+                    this.vy -= dy * force * 0.01;
+                } else {
+                    this.activationLevel *= 0.95;
+                    if (this.activationLevel < 0.01) {
+                        this.activated = false;
+                    }
+                }
+                
+                // 脉冲影响
+                pulses.forEach(pulse => {
+                    const pdx = this.x - pulse.x;
+                    const pdy = this.y - pulse.y;
+                    const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                    
+                    if (Math.abs(pdist - pulse.radius) < 30) {
+                        this.activated = true;
+                        this.activationLevel = 1;
+                    }
+                });
+                
+                // 自动脉冲模式
+                if (currentMode === 1) {
+                    const wave = Math.sin(time * 0.02 + this.baseX * 0.01 + this.baseY * 0.01);
+                    if (wave > 0.8) {
+                        this.activated = true;
+                        this.activationLevel = wave;
+                    }
+                }
+                
+                // 回到原位
+                this.vx += (this.baseX - this.x) * 0.05;
+                this.vy += (this.baseY - this.y) * 0.05;
+                
+                // 摩擦力
+                this.vx *= 0.9;
+                this.vy *= 0.9;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                const color = colors[currentColor];
+                const alpha = 0.3 + this.activationLevel * 0.7;
+                const size = this.size + this.activationLevel * 3;
+                
+                ctx.save();
+                ctx.fillStyle = this.activated ? color.secondary : color.primary;
+                ctx.globalAlpha = alpha;
+                ctx.shadowBlur = 15 * this.activationLevel;
+                ctx.shadowColor = this.activated ? color.secondary : color.primary;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                
+                // 绘制连接线
+                this.neighbors.forEach(neighbor => {
+                    const dist = Math.sqrt(
+                        (this.x - neighbor.x) ** 2 + 
+                        (this.y - neighbor.y) ** 2
+                    );
+                    
+                    if (dist < gridSpacing * 1.5) {
+                        const lineAlpha = (this.activationLevel + neighbor.activationLevel) / 2 * 0.5 + 0.1;
+                        
+                        ctx.save();
+                        ctx.strokeStyle = color.primary;
+                        ctx.globalAlpha = lineAlpha;
+                        ctx.lineWidth = 1;
+                        ctx.shadowBlur = 5;
+                        ctx.shadowColor = color.primary;
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(neighbor.x, neighbor.y);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                });
+            }
+        }
+
+        // 脉冲类
+        class Pulse {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 400;
+                this.speed = 5;
+                this.alpha = 1;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1 - (this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+
+            draw() {
+                const color = colors[currentColor];
+                
+                ctx.save();
+                ctx.strokeStyle = color.secondary;
+                ctx.globalAlpha = this.alpha * 0.5;
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = color.secondary;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // 初始化网格
+        function initGrid() {
+            nodes.length = 0;
+            
+            const cols = Math.floor(width / gridSpacing) + 1;
+            const rows = Math.floor(height / gridSpacing) + 1;
+            
+            // 创建节点
+            for (let i = 0; i < cols; i++) {
+                for (let j = 0; j < rows; j++) {
+                    const x = i * gridSpacing;
+                    const y = j * gridSpacing;
+                    nodes.push(new Node(x, y));
+                }
+            }
+            
+            // 建立邻居关系
+            nodes.forEach((node, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                
+                // 右邻居
+                if (col < cols - 1) {
+                    node.addNeighbor(nodes[index + 1]);
+                }
+                // 下邻居
+                if (row < rows - 1) {
+                    node.addNeighbor(nodes[index + cols]);
+                }
+                // 右下邻居
+                if (col < cols - 1 && row < rows - 1) {
+                    node.addNeighbor(nodes[index + cols + 1]);
+                }
+                // 左下邻居
+                if (col > 0 && row < rows - 1) {
+                    node.addNeighbor(nodes[index + cols - 1]);
+                }
+            });
+            
+            nodesCounter.textContent = nodes.length;
+        }
+
+        // 创建脉冲
+        function createPulse(x, y) {
+            pulses.push(new Pulse(x, y));
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 清空画布
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 更新和绘制节点
+            nodes.forEach(node => {
+                node.update();
+            });
+            
+            nodes.forEach(node => {
+                node.draw();
+            });
+
+            // 更新和绘制脉冲
+            for (let i = pulses.length - 1; i >= 0; i--) {
+                const alive = pulses[i].update();
+                if (!alive) {
+                    pulses.splice(i, 1);
+                } else {
+                    pulses[i].draw();
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            createPulse(e.clientX, e.clientY);
+        });
+
+        // 滚轮调整网格密度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            gridSpacing = Math.max(20, Math.min(80, gridSpacing + Math.sign(e.deltaY) * 5));
+            densityDisplay.textContent = gridSpacing;
+            initGrid();
+        });
+
+        // 按钮控制
+        document.getElementById('modeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMode = (currentMode + 1) % 2;
+            const modes = ['脉冲模式', '自动波纹'];
+            e.target.textContent = modes[currentMode];
+            e.target.classList.toggle('active', currentMode === 1);
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColor = (currentColor + 1) % colors.length;
+            e.target.textContent = colors[currentColor].name;
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            createPulse(mouseX, mouseY);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 创建多个脉冲
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        createPulse(
+                            Math.random() * width,
+                            Math.random() * height
+                        );
+                    }, i * 100);
+                }
+            } else if (e.code === 'KeyM') {
+                // 切换模式
+                currentMode = (currentMode + 1) % 2;
+                const modes = ['脉冲模式', '自动波纹'];
+                document.getElementById('modeBtn').textContent = modes[currentMode];
+                document.getElementById('modeBtn').classList.toggle('active', currentMode === 1);
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+
+        // 初始脉冲
+        setTimeout(() => {
+            createPulse(width / 2, height / 2);
+        }, 500);
+    </script>
+</body>
+</html>
