@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>烟花盛宴 | Fireworks Symphony</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0a0a1a 0%, #1a1a3a 50%, #2a1a2a 100%);
+            font-family: 'Georgia', serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 215, 0, 0.8);
+            font-size: 14px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+            letter-spacing: 1px;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 215, 0, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 
+                0 0 20px rgba(255, 215, 0, 0.8),
+                0 0 40px rgba(255, 100, 0, 0.4);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        
+        @keyframes shimmer {
+            0%, 100% { 
+                text-shadow: 
+                    0 0 20px rgba(255, 215, 0, 0.8),
+                    0 0 40px rgba(255, 100, 0, 0.4);
+            }
+            50% { 
+                text-shadow: 
+                    0 0 30px rgba(255, 215, 0, 1),
+                    0 0 60px rgba(255, 100, 0, 0.6),
+                    0 0 80px rgba(255, 50, 0, 0.3);
+            }
+        }
+        
+        .stats {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            color: rgba(255, 215, 0, 0.6);
+            font-size: 12px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.8;
+        }
+        
+        .mode-btn {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(255, 215, 0, 0.2);
+            border: 1px solid rgba(255, 215, 0, 0.5);
+            color: rgba(255, 215, 0, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+            z-index: 10;
+            border-radius: 5px;
+            transition: all 0.3s;
+            letter-spacing: 1px;
+        }
+        
+        .mode-btn:hover {
+            background: rgba(255, 215, 0, 0.3);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="title">🎆 烟花盛宴</div>
+    <div class="stats" id="stats"></div>
+    <button class="mode-btn" id="modeBtn">模式: 手动</button>
+    <canvas id="fireworks"></canvas>
+    <div class="info">点击发射烟花 · 拖动调整方向 · 滚轮调整发射频率</div>
+    
+    <script>
+        const canvas = document.getElementById('fireworks');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        const modeBtn = document.getElementById('modeBtn');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        const GRAVITY = 0.15;
+        const FRICTION = 0.99;
+        
+        // Fireworks system
+        let fireworks = [];
+        let particles = [];
+        let stars = [];
+        let autoMode = false;
+        let launchInterval = 2000;
+        let lastLaunch = 0;
+        
+        // Mouse interaction
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        
+        // Color palettes
+        const palettes = [
+            ['#FF6B6B', '#FF8E72', '#FFD93D', '#6BCF7F', '#4D96FF'],
+            ['#FF9FF3', '#FECA57', '#48DBFB', '#1DD1A1', '#F368E0'],
+            ['#A29BFE', '#74B9FF', '#00CEC9', '#55EFC4', '#FDCB6E'],
+            ['#E17055', '#FDCB6E', '#00B894', '#0984E3', '#6C5CE7'],
+            ['#FF4757', '#FF6348', '#FFA502', '#2ED573', '#1E90FF']
+        ];
+        
+        // Star background
+        class Star {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height * 0.6;
+                this.size = Math.random() * 2;
+                this.twinkle = Math.random() * TWO_PI;
+                this.twinkleSpeed = Math.random() * 0.05 + 0.01;
+            }
+            
+            update() {
+                this.twinkle += this.twinkleSpeed;
+            }
+            
+            draw(ctx) {
+                const opacity = 0.3 + Math.sin(this.twinkle) * 0.7;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                ctx.fill();
+            }
+        }
+        
+        // Firework rocket
+        class Firework {
+            constructor(x, y, targetX, targetY) {
+                this.x = x;
+                this.y = y;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                
+                const angle = Math.atan2(targetY - y, targetX - x);
+                const speed = 12 + Math.random() * 4;
+                
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.trail = [];
+                this.trailLength = 15;
+                this.palette = palettes[Math.floor(Math.random() * palettes.length)];
+                this.hue = Math.random() * 360;
+                this.brightness = 50 + Math.random() * 20;
+                this.exploded = false;
+            }
+            
+            update() {
+                // Store trail
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > this.trailLength) {
+                    this.trail.shift();
+                }
+                
+                // Physics
+                this.vy += GRAVITY;
+                this.vx *= FRICTION;
+                this.vy *= FRICTION;
+                
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Check if reached target or slowing down
+                const distance = Math.sqrt(
+                    Math.pow(this.targetX - this.x, 2) + 
+                    Math.pow(this.targetY - this.y, 2)
+                );
+                
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                
+                if (distance < 20 || speed < 2 || this.y <= this.targetY) {
+                    this.explode();
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            draw(ctx) {
+                // Draw trail
+                this.trail.forEach((point, i) => {
+                    const opacity = i / this.trail.length;
+                    const size = 2 * opacity;
+                    
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, size, 0, TWO_PI);
+                    ctx.fillStyle = `hsla(${this.hue}, 100%, ${this.brightness}%, ${opacity})`;
+                    ctx.fill();
+                });
+                
+                // Draw rocket
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 3, 0, TWO_PI);
+                ctx.fillStyle = `hsl(${this.hue}, 100%, ${this.brightness}%)`;
+                ctx.fill();
+                
+                // Glow
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 6, 0, TWO_PI);
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 6);
+                gradient.addColorStop(0, `hsla(${this.hue}, 100%, ${this.brightness}%, 0.8)`);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+            
+            explode() {
+                const particleCount = 80 + Math.floor(Math.random() * 40);
+                const type = Math.floor(Math.random() * 4);
+                
+                for (let i = 0; i < particleCount; i++) {
+                    let angle, speed;
+                    
+                    switch (type) {
+                        case 0: // Circle
+                            angle = (i / particleCount) * TWO_PI;
+                            speed = 3 + Math.random() * 5;
+                            break;
+                        case 1: // Star
+                            angle = (i / particleCount) * TWO_PI;
+                            speed = (i % 5 === 0) ? 8 + Math.random() * 3 : 3 + Math.random() * 2;
+                            break;
+                        case 2: // Double ring
+                            angle = (i / particleCount) * TWO_PI;
+                            speed = (i < particleCount / 2) ? 2 + Math.random() * 2 : 5 + Math.random() * 3;
+                            break;
+                        case 3: // Random burst
+                            angle = Math.random() * TWO_PI;
+                            speed = 2 + Math.random() * 6;
+                            break;
+                    }
+                    
+                    const color = this.palette[Math.floor(Math.random() * this.palette.length)];
+                    
+                    particles.push(new Particle(
+                        this.x,
+                        this.y,
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed,
+                        color,
+                        this.hue
+                    ));
+                }
+                
+                // Add sparkle particles
+                for (let i = 0; i < 20; i++) {
+                    const angle = Math.random() * TWO_PI;
+                    const speed = 1 + Math.random() * 2;
+                    
+                    particles.push(new Particle(
+                        this.x,
+                        this.y,
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed,
+                        '#FFFFFF',
+                        this.hue,
+                        true
+                    ));
+                }
+            }
+        }
+        
+        // Explosion particle
+        class Particle {
+            constructor(x, y, vx, vy, color, hue, isSparkle = false) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.color = color;
+                this.hue = hue;
+                this.alpha = 1;
+                this.decay = 0.015 + Math.random() * 0.01;
+                this.size = isSparkle ? 1.5 : 2.5 + Math.random() * 1.5;
+                this.isSparkle = isSparkle;
+                this.trail = [];
+                this.trailLength = isSparkle ? 3 : 8;
+            }
+            
+            update() {
+                // Store trail
+                this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
+                if (this.trail.length > this.trailLength) {
+                    this.trail.shift();
+                }
+                
+                // Physics
+                this.vy += GRAVITY * 0.5;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Decay
+                this.alpha -= this.decay;
+                
+                return this.alpha > 0;
+            }
+            
+            draw(ctx) {
+                // Draw trail
+                if (!this.isSparkle) {
+                    this.trail.forEach((point, i) => {
+                        const opacity = (i / this.trail.length) * point.alpha * 0.5;
+                        ctx.beginPath();
+                        ctx.arc(point.x, point.y, this.size * 0.5, 0, TWO_PI);
+                        ctx.fillStyle = this.hexToRgba(this.color, opacity);
+                        ctx.fill();
+                    });
+                }
+                
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fillStyle = this.hexToRgba(this.color, this.alpha);
+                ctx.fill();
+                
+                // Glow effect
+                if (!this.isSparkle && this.alpha > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 2, 0, TWO_PI);
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, this.size * 2
+                    );
+                    gradient.addColorStop(0, this.hexToRgba(this.color, this.alpha * 0.5));
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+            }
+            
+            hexToRgba(hex, alpha) {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            }
+        }
+        
+        // Initialize stars
+        function initStars() {
+            stars = [];
+            const starCount = Math.floor((width * height) / 10000);
+            for (let i = 0; i < starCount; i++) {
+                stars.push(new Star());
+            }
+        }
+        
+        initStars();
+        
+        // Launch firework
+        function launchFirework(targetX, targetY) {
+            const startX = width * (0.2 + Math.random() * 0.6);
+            const startY = height;
+            
+            fireworks.push(new Firework(startX, startY, targetX || mouseX, targetY || mouseY * 0.5));
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            launchFirework(e.clientX, e.clientY);
+        });
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+        });
+        
+        canvas.addEventListener('mouseup', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                
+                if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                    // Launch with drag direction
+                    const targetX = dragStartX + dx * 0.5;
+                    const targetY = dragStartY + dy * 0.5;
+                    launchFirework(targetX, targetY);
+                }
+            }
+            isDragging = false;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            launchInterval = Math.max(500, Math.min(5000, launchInterval + e.deltaY * 2));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            launchFirework(touch.clientX, touch.clientY);
+        });
+        
+        modeBtn.addEventListener('click', () => {
+            autoMode = !autoMode;
+            modeBtn.textContent = `模式: ${autoMode ? '自动' : '手动'}`;
+        });
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initStars();
+        });
+        
+        // Main animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            // FPS calculation
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Clear with fade effect
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw stars
+            stars.forEach(star => {
+                star.update();
+                star.draw(ctx);
+            });
+            
+            // Auto launch
+            if (autoMode && currentTime - lastLaunch > launchInterval) {
+                launchFirework(
+                    width * (0.2 + Math.random() * 0.6),
+                    height * (0.1 + Math.random() * 0.4)
+                );
+                lastLaunch = currentTime;
+            }
+            
+            // Update and draw fireworks
+            fireworks = fireworks.filter(firework => {
+                firework.draw(ctx);
+                return firework.update();
+            });
+            
+            // Update and draw particles
+            particles = particles.filter(particle => {
+                particle.draw(ctx);
+                return particle.update();
+            });
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                烟花: ${fireworks.length}<br>
+                粒子: ${particles.length}<br>
+                间隔: ${(launchInterval / 1000).toFixed(1)}s
+            `;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+        
+        // Launch initial firework
+        setTimeout(() => launchFirework(width / 2, height * 0.3), 500);
+    </script>
+</body>
+</html>
