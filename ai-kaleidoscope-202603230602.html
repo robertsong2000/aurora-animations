@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何万花筒 | Geometric Kaleidoscope</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+            letter-spacing: 1px;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 28px;
+            font-weight: 300;
+            letter-spacing: 12px;
+            z-index: 10;
+            pointer-events: none;
+            text-transform: uppercase;
+            animation: titlePulse 4s ease-in-out infinite;
+        }
+        
+        @keyframes titlePulse {
+            0%, 100% { 
+                opacity: 0.7;
+                letter-spacing: 12px;
+            }
+            50% { 
+                opacity: 1;
+                letter-spacing: 16px;
+            }
+        }
+        
+        .mode-indicator {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 10;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">Kaleidoscope</div>
+    <div class="mode-indicator" id="modeIndicator">模式: 对称</div>
+    <canvas id="kaleidoscope"></canvas>
+    <div class="info">移动鼠标改变图案 · 点击切换模式 · 滚轮调整对称轴</div>
+    
+    <script>
+        const canvas = document.getElementById('kaleidoscope');
+        const ctx = canvas.getContext('2d');
+        const modeIndicator = document.getElementById('modeIndicator');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        let centerX = width / 2;
+        let centerY = height / 2;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        const PI = Math.PI;
+        const EPSILON = 0.001;
+        
+        // Kaleidoscope parameters
+        let segments = 8;
+        let mouseX = centerX;
+        let mouseY = centerY;
+        let time = 0;
+        let mode = 0;
+        const modes = ['对称', '旋转', '脉冲', '混沌'];
+        
+        // Shape parameters
+        let shapes = [];
+        const maxShapes = 50;
+        
+        // Color palette
+        const palettes = [
+            ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'],
+            ['#FF9FF3', '#FECA57', '#48DBFB', '#1DD1A1', '#F368E0'],
+            ['#A29BFE', '#74B9FF', '#00CEC9', '#55EFC4', '#FDCB6E'],
+            ['#E17055', '#FDCB6E', '#00B894', '#0984E3', '#6C5CE7']
+        ];
+        let currentPalette = 0;
+        
+        // Shape class
+        class Shape {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x;
+                this.baseY = y;
+                this.size = Math.random() * 30 + 10;
+                this.rotation = Math.random() * TWO_PI;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.05;
+                this.type = Math.floor(Math.random() * 4); // 0: triangle, 1: square, 2: pentagon, 3: hexagon
+                this.colorIndex = Math.floor(Math.random() * 5);
+                this.opacity = Math.random() * 0.6 + 0.4;
+                this.pulsePhase = Math.random() * TWO_PI;
+                this.pulseSpeed = Math.random() * 0.02 + 0.01;
+                this.orbitRadius = Math.random() * 50;
+                this.orbitAngle = Math.random() * TWO_PI;
+                this.orbitSpeed = (Math.random() - 0.5) * 0.02;
+            }
+            
+            update(time, mouseInfluence) {
+                // Rotation
+                this.rotation += this.rotationSpeed * (1 + mouseInfluence * 0.5);
+                
+                // Pulse
+                const pulse = Math.sin(time * this.pulseSpeed + this.pulsePhase);
+                this.currentSize = this.size * (1 + pulse * 0.3);
+                
+                // Orbit motion
+                this.orbitAngle += this.orbitSpeed;
+                this.x = this.baseX + Math.cos(this.orbitAngle) * this.orbitRadius;
+                this.y = this.baseY + Math.sin(this.orbitAngle) * this.orbitRadius;
+            }
+            
+            draw(ctx, palette) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                
+                const sides = this.type + 3; // 3 to 6 sides
+                const color = palette[this.colorIndex];
+                
+                ctx.beginPath();
+                for (let i = 0; i < sides; i++) {
+                    const angle = (i / sides) * TWO_PI - PI / 2;
+                    const x = Math.cos(angle) * this.currentSize;
+                    const y = Math.sin(angle) * this.currentSize;
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.closePath();
+                
+                // Fill with gradient
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.currentSize);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, this.adjustColor(color, -30));
+                
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.opacity;
+                ctx.fill();
+                
+                // Stroke
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+            
+            adjustColor(color, amount) {
+                const hex = color.replace('#', '');
+                const r = Math.max(0, Math.min(255, parseInt(hex.substr(0, 2), 16) + amount));
+                const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + amount));
+                const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + amount));
+                return `rgb(${r}, ${g}, ${b})`;
+            }
+        }
+        
+        // Initialize shapes
+        function initShapes() {
+            shapes = [];
+            const radius = Math.min(width, height) * 0.35;
+            
+            for (let i = 0; i < maxShapes; i++) {
+                const angle = Math.random() * TWO_PI;
+                const dist = Math.random() * radius;
+                const x = centerX + Math.cos(angle) * dist;
+                const y = centerY + Math.sin(angle) * dist;
+                shapes.push(new Shape(x, y));
+            }
+        }
+        
+        initShapes();
+        
+        // Draw kaleidoscope segment
+        function drawSegment(ctx, shape, angle, palette) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(angle);
+            
+            // Mirror every other segment
+            const segmentIndex = Math.floor(angle / (TWO_PI / segments));
+            if (segmentIndex % 2 === 1) {
+                ctx.scale(-1, 1);
+            }
+            
+            ctx.translate(-centerX, -centerY);
+            shape.draw(ctx, palette);
+            
+            ctx.restore();
+        }
+        
+        // Draw complete kaleidoscope
+        function drawKaleidoscope(time) {
+            const palette = palettes[currentPalette];
+            const mouseInfluence = Math.sqrt(
+                Math.pow((mouseX - centerX) / width, 2) + 
+                Math.pow((mouseY - centerY) / height, 2)
+            );
+            
+            // Update and draw shapes
+            shapes.forEach(shape => {
+                shape.update(time, mouseInfluence);
+                
+                // Draw in all segments
+                for (let i = 0; i < segments; i++) {
+                    const angle = (i / segments) * TWO_PI;
+                    drawSegment(ctx, shape, angle, palette);
+                }
+            });
+        }
+        
+        // Draw mandala pattern
+        function drawMandala(time) {
+            const palette = palettes[currentPalette];
+            const layers = 5;
+            
+            for (let layer = 0; layer < layers; layer++) {
+                const radius = (layer + 1) * Math.min(width, height) * 0.08;
+                const elements = segments * (layer + 1);
+                
+                for (let i = 0; i < elements; i++) {
+                    const angle = (i / elements) * TWO_PI + time * 0.001 * (layer % 2 === 0 ? 1 : -1);
+                    const x = centerX + Math.cos(angle) * radius;
+                    const y = centerY + Math.sin(angle) * radius;
+                    
+                    const shapeSize = 15 + Math.sin(time * 0.002 + i) * 5;
+                    const color = palette[i % palette.length];
+                    
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(angle + time * 0.002);
+                    
+                    // Draw element
+                    ctx.beginPath();
+                    const sides = 4 + (i % 3);
+                    for (let j = 0; j < sides; j++) {
+                        const a = (j / sides) * TWO_PI;
+                        const px = Math.cos(a) * shapeSize;
+                        const py = Math.sin(a) * shapeSize;
+                        if (j === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = 0.6;
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    
+                    ctx.restore();
+                }
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('click', () => {
+            mode = (mode + 1) % modes.length;
+            modeIndicator.textContent = `模式: ${modes[mode]}`;
+            
+            if (mode === 0) {
+                currentPalette = (currentPalette + 1) % palettes.length;
+            }
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            segments = Math.max(3, Math.min(16, segments + Math.sign(e.deltaY)));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', () => {
+            mode = (mode + 1) % modes.length;
+            modeIndicator.textContent = `模式: ${modes[mode]}`;
+        });
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            initShapes();
+        });
+        
+        // Main animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            // FPS calculation
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Clear with fade effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw center glow
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.min(width, height) * 0.5);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
+            gradient.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw based on mode
+            switch (mode) {
+                case 0: // Symmetric
+                    drawKaleidoscope(time);
+                    break;
+                case 1: // Rotating mandala
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(time * 0.0005);
+                    ctx.translate(-centerX, -centerY);
+                    drawMandala(time);
+                    ctx.restore();
+                    break;
+                case 2: // Pulsing
+                    const scale = 1 + Math.sin(time * 0.002) * 0.2;
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.scale(scale, scale);
+                    ctx.translate(-centerX, -centerY);
+                    drawKaleidoscope(time);
+                    ctx.restore();
+                    break;
+                case 3: // Chaos
+                    drawKaleidoscope(time);
+                    drawMandala(time);
+                    break;
+            }
+            
+            // Draw center point
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5 + Math.sin(time * 0.003) * 2, 0, TWO_PI);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
