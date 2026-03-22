@@ -13,7 +13,7 @@
 
         body {
             overflow: hidden;
-            background: #000;
+            background: linear-gradient(135deg, #1a0a2a 0%, #2d1f4d 50%, #1a1a3d 100%);
             font-family: 'Arial', sans-serif;
         }
 
@@ -64,12 +64,6 @@
             text-align: center;
             pointer-events: none;
             z-index: 10;
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 0.7; }
-            50% { opacity: 1; }
         }
 
         .stats {
@@ -137,12 +131,12 @@
     </div>
     
     <div class="instructions">
-        移动鼠标控制频率 · 点击触发节拍 · 滚轮调整敏感度
+        移动鼠标影响频率 · 点击触发节拍 · 滚轮调整敏感度
     </div>
     
     <div class="stats">
         <div>FPS: <span id="fps">60</span></div>
-        <div>频段数: <span id="bands">64</span></div>
+        <div>频段数: <span id="bands">32</span></div>
         <div>敏感度: <span id="sensitivity">100</span>%</div>
     </div>
 
@@ -158,27 +152,26 @@
         let currentMode = 0;
         let currentColorScheme = 0;
         let isPlaying = false;
-        let beatInterval = null;
+        let beatTime = 0;
 
         // Canvas 设置
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         let width, height;
 
-        // 音频可视化系统
-        const numBands = 64;
+        // 音频数据
+        const numBands = 32;
         const frequencyData = [];
-        const smoothedData = [];
         let mouseX = 0;
         let mouseY = 0;
         let time = 0;
 
         // 颜色方案
         const colorSchemes = [
-            { name: '彩虹色', getColor: (i, total) => `hsl(${(i / total) * 360}, 80%, 60%)` },
-            { name: '火焰色', getColor: (i, total) => `hsl(${20 + (i / total) * 40}, 100%, 50%)` },
-            { name: '海洋色', getColor: (i, total) => `hsl(${180 + (i / total) * 60}, 70%, 50%)` },
-            { name: '极光色', getColor: (i, total) => `hsl(${120 + (i / total) * 120}, 80%, 60%)` }
+            { name: '彩虹色', colors: ['#ff0000', '#ff8800', '#ffff00', '#00ff00', '#00ffff', '#0088ff', '#8800ff'] },
+            { name: '火焰色', colors: ['#ff4400', '#ff6600', '#ff8800', '#ffaa00', '#ffcc00', '#ffee00', '#ffff00'] },
+            { name: '海洋色', colors: ['#004488', '#0066aa', '#0088cc', '#00aaff', '#00ccff', '#00eeff', '#00ffff'] }
+            { name: '极光色', colors: ['#00ff88', '#00ffaa', '#00ffcc', '#00ffee', '#88ffcc', '#aaffee', '#ccffff'] }
         ];
 
         // 响应式调整
@@ -189,166 +182,130 @@
 
         // 初始化频率数据
         function initFrequencyData() {
+            frequencyData.length = 0;
             for (let i = 0; i < numBands; i++) {
-                frequencyData.push(0);
-                smoothedData.push(0);
+                frequencyData.push({
+                    value: 0,
+                    targetValue: 0,
+                    velocity: 0,
+                    decay: 0.95
+                });
             }
-            bandsCounter.textContent = numBands;
         }
 
-        // 生成模拟音频数据
+        // 生成音频数据（模拟）
         function generateAudioData() {
-            const mouseInfluence = mouseX / width;
-            const timeInfluence = time * 0.05;
+            const bassIntensity = isPlaying ? 0.8 : 0.3;
             
             for (let i = 0; i < numBands; i++) {
-                // 基础波形
-                const baseWave = Math.sin(timeInfluence + i * 0.2) * 0.5 + 0.5;
+                // 基于时间的波形
+                const timeFactor = Math.sin(time * 0.02 + i * 0.3) * 0.5 + 0.5;
                 
                 // 鼠标影响
-                const mouseWave = Math.sin(mouseInfluence * Math.PI * 2 + i * 0.1) * 0.3;
+                const mouseInfluence = Math.max(0, 1 - Math.abs(i - (mouseX / width * numBands)) / 5);
                 
-                // 随机噪声
-                const noise = Math.random() * 0.2;
+                // 随机波动
+                const noise = Math.random() * 0.3;
                 
-                // 组合
-                let value = (baseWave + mouseWave + noise) * sensitivity;
+                // 低频更强
+                const freqWeight = 1 - (i / numBands) * 0.5;
                 
-                // 如果播放节拍，增加节奏感
-                if (isPlaying) {
-                    const beat = Math.sin(time * 0.3) > 0.7 ? 0.5 : 0;
-                    value += beat * (1 - i / numBands);
-                }
-                
-                // 限制范围
-                value = Math.max(0, Math.min(1, value));
+                // 组合所有因素
+                frequencyData[i].targetValue = 
+                    (timeFactor + mouseInfluence * sensitivity + noise) * freqWeight * bassIntensity;
                 
                 // 平滑过渡
-                smoothedData[i] += (value - smoothedData[i]) * 0.3;
-                frequencyData[i] = smoothedData[i];
+                frequencyData[i].value += (frequencyData[i].targetValue - frequencyData[i].value) * 0.1;
             }
         }
 
-        // 绘制条形图模式
+        // 绘制条形可视化
         function drawBars() {
             const barWidth = width / numBands;
-            const colorFunc = colorSchemes[currentColorScheme].getColor;
+            const scheme = colorSchemes[currentColorScheme].colors;
             
-            frequencyData.forEach((value, i) => {
-                const barHeight = value * height * 0.6;
+            for (let i = 0; i < numBands; i++) {
+                const barHeight = frequencyData[i].value * height * 0.8;
                 const x = i * barWidth;
                 const y = height - barHeight;
                 
-                ctx.save();
+                const colorIndex = Math.floor((i / numBands) * scheme.length);
+                const color = scheme[colorIndex];
                 
                 // 渐变填充
-                const gradient = ctx.createLinearGradient(x, y, x, height);
-                const color = colorFunc(i, numBands);
-                gradient.addColorStop(0, color);
-                gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+                const gradient = ctx.createLinearGradient(x, height, x, y);
+                gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+                gradient.addColorStop(1, color);
                 
                 ctx.fillStyle = gradient;
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = color;
                 ctx.fillRect(x, y, barWidth - 2, barHeight);
                 
-                ctx.restore();
-            });
+                // 发光效果
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = color;
+                ctx.fillRect(x, y, barWidth - 2, barHeight);
+            }
         }
-
-        // 绘制圆形模式
+        
+        // 绘制圆形可视化
         function drawCircle() {
             const centerX = width / 2;
             const centerY = height / 2;
-            const baseRadius = Math.min(width, height) * 0.2;
-            const colorFunc = colorSchemes[currentColorScheme].getColor;
+            const scheme = colorSchemes[currentColorScheme].colors;
             
-            ctx.save();
+            for (let i = 0; i < numBands; i++) {
+                const angle = (i / numBands) * Math.PI * 2;
+                const radius = frequencyData[i].value * Math.min(width, height) * 0.3;
+                
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                
+                const colorIndex = Math.floor((i / numBands) * scheme.length);
+                const color = scheme[colorIndex];
+                
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, angle, angle + (Math.PI * 2 / numBands));
+                ctx.lineTo(centerX, centerY);
+                ctx.fillStyle = color;
+                ctx.globalAlpha = 0.8;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = color;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制波形可视化
+        function drawWave() {
+            const scheme = colorSchemes[currentColorScheme].colors;
             
-            frequencyData.forEach((value, i) => {
-                const angle = (i / numBands) * Math.PI * 2 - Math.PI / 2;
-                const radius = baseRadius + value * baseRadius;
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            
+            for (let i = 0; i < numBands; i++) {
+                const x = (i / numBands) * width;
+                const y = height / 2 + frequencyData[i].value * height * 0.4;
                 
-                const x1 = centerX + Math.cos(angle) * baseRadius;
-                const y1 = centerY + Math.sin(angle) * baseRadius;
-                const x2 = centerX + Math.cos(angle) * radius;
-                const y2 = centerY + Math.sin(angle) * radius;
-                
-                const color = colorFunc(i, numBands);
+                const colorIndex = Math.floor((i / numBands) * scheme.length);
+                const color = scheme[colorIndex];
                 
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 3;
                 ctx.shadowBlur = 10;
                 ctx.shadowColor = color;
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-            });
-            
-            // 中心圆
-            const avgValue = frequencyData.reduce((a, b) => a + b, 0) / numBands;
-            const centerRadius = baseRadius * 0.3 + avgValue * baseRadius * 0.3;
-            
-            const gradient = ctx.createRadialGradient(
-                centerX, centerY, 0,
-                centerX, centerY, centerRadius
-            );
-            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-            gradient.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
-            
-            ctx.fillStyle = gradient;
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = '#fff';
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, centerRadius, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.restore();
-        }
-
-        // 绘制波形模式
-        function drawWave() {
-            const colorFunc = colorSchemes[currentColorScheme].getColor;
-            
-            ctx.save();
-            
-            // 绘制多层波形
-            for (let layer = 0; layer < 3; layer++) {
-                const offset = layer * Math.PI / 3;
-                const alpha = 1 - layer * 0.3;
-                
-                ctx.beginPath();
-                ctx.moveTo(0, height / 2);
-                
-                for (let i = 0; i < numBands; i++) {
-                    const x = (i / numBands) * width;
-                    const value = frequencyData[i];
-                    const y = height / 2 + Math.sin(time * 0.05 + i * 0.2 + offset) * value * height * 0.3;
-                    
-                    ctx.lineTo(x, y);
-                }
-                
-                const color = colorFunc(layer * 20, 60);
-                ctx.strokeStyle = color;
-                ctx.globalAlpha = alpha;
-                ctx.lineWidth = 3;
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = color;
-                ctx.stroke();
+                ctx.lineTo(x, y);
             }
             
-            ctx.restore();
+            ctx.stroke();
         }
-
+        
         // 触发节拍
         function triggerBeat() {
-            // 增加所有频率值
-            for (let i = 0; i < numBands; i++) {
-                frequencyData[i] = Math.min(1, frequencyData[i] + 0.5);
-            }
+            isPlaying = true;
+            setTimeout(() => {
+                isPlaying = false;
+            }, 500);
         }
-
+        
         // 动画循环
         function animate(currentTime) {
             // FPS 计算
@@ -359,16 +316,16 @@
                 lastTime = currentTime;
                 fpsCounter.textContent = fps;
             }
-
+            
             time++;
-
+            
             // 清空画布
             ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
             ctx.fillRect(0, 0, width, height);
-
+            
             // 生成音频数据
             generateAudioData();
-
+            
             // 根据模式绘制
             switch (currentMode) {
                 case 0:
@@ -381,29 +338,29 @@
                     drawWave();
                     break;
             }
-
+            
             requestAnimationFrame(animate);
         }
-
+        
         // 事件监听
         window.addEventListener('resize', resize);
-
+        
         canvas.addEventListener('mousemove', (e) => {
             mouseX = e.clientX;
             mouseY = e.clientY;
         });
-
+        
         canvas.addEventListener('click', (e) => {
             triggerBeat();
         });
-
+        
         // 滚轮调整敏感度
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             sensitivity = Math.max(0.2, Math.min(2.0, sensitivity - e.deltaY * 0.001));
             sensitivityDisplay.textContent = Math.round(sensitivity * 100);
         });
-
+        
         // 按钮控制
         document.getElementById('modeBtn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -411,20 +368,18 @@
             const modes = ['条形模式', '圆形模式', '波形模式'];
             e.target.textContent = modes[currentMode];
         });
-
+        
         document.getElementById('colorBtn').addEventListener('click', (e) => {
             e.stopPropagation();
             currentColorScheme = (currentColorScheme + 1) % colorSchemes.length;
             e.target.textContent = colorSchemes[currentColorScheme].name;
         });
-
+        
         document.getElementById('playBtn').addEventListener('click', (e) => {
             e.stopPropagation();
-            isPlaying = !isPlaying;
-            e.target.textContent = isPlaying ? '停止节拍' : '播放节拍';
-            e.target.classList.toggle('active', isPlaying);
+            triggerBeat();
         });
-
+        
         // 触摸支持
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
@@ -433,27 +388,27 @@
             mouseY = touch.clientY;
             triggerBeat();
         });
-
+        
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
             mouseX = touch.clientX;
             mouseY = touch.clientY;
         });
-
+        
         // 键盘控制
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
                 triggerBeat();
-            } else if (e.code === 'KeyP') {
-                // 切换播放
-                isPlaying = !isPlaying;
-                document.getElementById('playBtn').textContent = isPlaying ? '停止节拍' : '播放节拍';
-                document.getElementById('playBtn').classList.toggle('active', isPlaying);
+            } else if (e.code === 'KeyM') {
+                // 切换模式
+                currentMode = (currentMode + 1) % 3;
+                const modes = ['条形模式', '圆形模式', '波形模式'];
+                document.getElementById('modeBtn').textContent = modes[currentMode];
             }
         });
-
+        
         // 初始化
         resize();
         initFrequencyData();
