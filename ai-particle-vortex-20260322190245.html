@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子漩涡 | Particle Vortex</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: rotate 20s linear infinite;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(0, 255, 255, 0.8),
+                0 0 40px rgba(255, 0, 255, 0.6),
+                0 0 60px rgba(0, 255, 0, 0.4);
+            letter-spacing: 0.3em;
+            margin-bottom: 20px;
+        }
+
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            color: rgba(0, 255, 255, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            color: rgba(0, 255, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: rgba(0, 255, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(0, 255, 255, 0.3);
+            border-color: rgba(0, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="vortexBtn">单漩涡</button>
+        <button class="control-btn" id="directionBtn">顺时针</button>
+        <button class="control-btn" id="speedBtn">正常速度</button>
+    </div>
+    
+    <div class="title">
+        <h1>粒子漩涡</h1>
+        <div class="subtitle">螺旋的力量</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标创建漩涡中心 · 点击切换漩涡方向 · 滚轮调整漩涡强度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>粒子数: <span id="particles">0</span></div>
+        <div>漩涡数: <span id="vortices">0</span></div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const particlesCounter = document.getElementById('particles');
+        const vorticesCounter = document.getElementById('vortices');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let vortexStrength = 1.0;
+        let numVortices = 1;
+        let isClockwise = true;
+        let speedMultiplier = 1.0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 粒子系统
+        const particles = [];
+        const vortices = [];
+        let maxParticles = 800;
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initVortices();
+        }
+
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * Math.min(width, height) * 0.4;
+                
+                this.x = width / 2 + Math.cos(angle) * radius;
+                this.y = height / 2 + Math.sin(angle) * radius;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.size = Math.random() * 3 + 1;
+                this.life = 1;
+                this.maxLife = 1;
+                this.hue = Math.random() * 360;
+                this.trail = [];
+                this.maxTrailLength = 8;
+            }
+
+            update() {
+                // 保存轨迹
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+                
+                // 应用所有漩涡的影响
+                vortices.forEach(vortex => {
+                    const dx = vortex.x - this.x;
+                    const dy = vortex.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < vortex.radius && dist > 5) {
+                        const angle = Math.atan2(dy, dx);
+                        const tangentAngle = angle + (isClockwise ? Math.PI / 2 : -Math.PI / 2);
+                        const force = (vortex.radius - dist) / vortex.radius * vortex.strength * vortexStrength;
+                        
+                        // 向心力
+                        const centripetalForce = force * 0.02;
+                        
+                        this.vx += Math.cos(tangentAngle) * force * 0.1 - dx * centripetalForce / dist;
+                        this.vy += Math.sin(tangentAngle) * force * 0.1 - dy * centripetalForce / dist;
+                    }
+                });
+                
+                // 物理更新
+                this.x += this.vx * speedMultiplier;
+                this.y += this.vy * speedMultiplier;
+                
+                // 摩擦力
+                this.vx *= 0.995;
+                this.vy *= 0.995;
+                
+                // 速度限制
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 10) {
+                    this.vx = (this.vx / speed) * 10;
+                    this.vy = (this.vy / speed) * 10;
+                }
+                
+                // 边界处理
+                if (this.x < -50 || this.x > width + 50 || 
+                    this.y < -50 || this.y > height + 50) {
+                    this.reset();
+                }
+                
+                // 颜色变化
+                this.hue = (this.hue + 0.5) % 360;
+                
+                return true;
+            }
+
+            draw() {
+                // 绘制轨迹
+                if (this.trail.length > 1) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    
+                    ctx.strokeStyle = `hsla(${this.hue}, 100%, 60%, ${this.life * 0.3})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                
+                // 绘制粒子
+                ctx.save();
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                gradient.addColorStop(0, `hsla(${this.hue}, 100%, 80%, ${this.life})`);
+                gradient.addColorStop(0.5, `hsla(${this.hue}, 100%, 60%, ${this.life * 0.5})`);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = `hsla(${this.hue}, 100%, 60%, ${this.life})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 漩涡类
+        class Vortex {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 200;
+                this.strength = 1;
+                this.phase = 0;
+            }
+
+            update() {
+                this.phase += 0.05;
+            }
+
+            draw() {
+                // 绘制漩涡指示器
+                ctx.save();
+                
+                const numRings = 5;
+                for (let i = 0; i < numRings; i++) {
+                    const radius = (i + 1) * this.radius / numRings;
+                    const alpha = (1 - i / numRings) * 0.3;
+                    
+                    ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`;
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([5, 10]);
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                
+                // 旋转箭头
+                const arrowAngle = this.phase + (isClockwise ? 0 : Math.PI);
+                const arrowRadius = 30;
+                
+                ctx.setLineDash([]);
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, arrowRadius, arrowAngle, arrowAngle + Math.PI * 1.5, !isClockwise);
+                ctx.stroke();
+                
+                // 箭头尖端
+                const tipAngle = arrowAngle + Math.PI * 1.5 * (isClockwise ? 1 : -1);
+                const tipX = this.x + Math.cos(tipAngle) * arrowRadius;
+                const tipY = this.y + Math.sin(tipAngle) * arrowRadius;
+                
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+
+        // 初始化漩涡
+        function initVortices() {
+            vortices.length = 0;
+            
+            if (numVortices === 1) {
+                vortices.push(new Vortex(width / 2, height / 2));
+            } else if (numVortices === 2) {
+                vortices.push(new Vortex(width * 0.3, height / 2));
+                vortices.push(new Vortex(width * 0.7, height / 2));
+            } else if (numVortices === 4) {
+                vortices.push(new Vortex(width * 0.25, height * 0.25));
+                vortices.push(new Vortex(width * 0.75, height * 0.25));
+                vortices.push(new Vortex(width * 0.25, height * 0.75));
+                vortices.push(new Vortex(width * 0.75, height * 0.75));
+            }
+            
+            vorticesCounter.textContent = vortices.length;
+        }
+
+        // 初始化粒子
+        function initParticles() {
+            particles.length = 0;
+            for (let i = 0; i < maxParticles; i++) {
+                particles.push(new Particle());
+            }
+            particlesCounter.textContent = particles.length;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            // 半透明覆盖
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 更新和绘制漩涡
+            vortices.forEach(vortex => {
+                vortex.update();
+                vortex.draw();
+            });
+
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // 移动第一个漩涡到鼠标位置
+            if (numVortices === 1 && vortices.length > 0) {
+                vortices[0].x = mouseX;
+                vortices[0].y = mouseY;
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 切换方向
+            isClockwise = !isClockwise;
+            document.getElementById('directionBtn').textContent = 
+                isClockwise ? '顺时针' : '逆时针';
+        });
+
+        // 滚轮调整漩涡强度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            vortexStrength = Math.max(0.2, Math.min(3.0, vortexStrength - e.deltaY * 0.001));
+        });
+
+        // 按钮控制
+        document.getElementById('vortexBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            numVortices = numVortices === 1 ? 2 : (numVortices === 2 ? 4 : 1);
+            const labels = { 1: '单漩涡', 2: '双漩涡', 4: '四漩涡' };
+            e.target.textContent = labels[numVortices];
+            initVortices();
+        });
+
+        document.getElementById('directionBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            isClockwise = !isClockwise;
+            e.target.textContent = isClockwise ? '顺时针' : '逆时针';
+        });
+
+        document.getElementById('speedBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            speedMultiplier = speedMultiplier === 1.0 ? 2.0 : (speedMultiplier === 2.0 ? 0.5 : 1.0);
+            const labels = { 0.5: '慢速', 1.0: '正常速度', 2.0: '快速' };
+            e.target.textContent = labels[speedMultiplier];
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            if (numVortices === 1 && vortices.length > 0) {
+                vortices[0].x = mouseX;
+                vortices[0].y = mouseY;
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            if (numVortices === 1 && vortices.length > 0) {
+                vortices[0].x = mouseX;
+                vortices[0].y = mouseY;
+            }
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 重置粒子
+                initParticles();
+            } else if (e.code === 'KeyV') {
+                // 切换漩涡数量
+                numVortices = numVortices === 1 ? 2 : (numVortices === 2 ? 4 : 1);
+                initVortices();
+            } else if (e.code === 'KeyD') {
+                // 切换方向
+                isClockwise = !isClockwise;
+                document.getElementById('directionBtn').textContent = 
+                    isClockwise ? '顺时针' : '逆时针';
+            }
+        });
+
+        // 初始化
+        resize();
+        initParticles();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
