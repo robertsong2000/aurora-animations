@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光束追踪 | Light Beams</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(255, 255, 255, 0.8),
+                0 0 40px rgba(200, 220, 255, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(200, 220, 255, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="modeBtn">单光束</button>
+        <button class="control-btn" id="colorBtn">白色</button>
+    </div>
+    
+    <div class="title">
+        <h1>光束</h1>
+        <div class="subtitle">穿透黑暗的光芒</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标控制光束方向 · 点击创建光束爆发 · 滚轮调整光束宽度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>光束数: <span id="beams">0</span></div>
+        <div>宽度: <span id="width">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const beamsCounter = document.getElementById('beams');
+        const widthDisplay = document.getElementById('width');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let beamWidth = 1.0;
+        let currentMode = 0;
+        let currentColor = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 光束系统
+        const beams = [];
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+
+        // 颜色方案
+        const colors = [
+            { name: '白色', color: '#ffffff', glow: 'rgba(255, 255, 255, 0.3)' },
+            { name: '蓝色', color: '#00aaff', glow: 'rgba(0, 170, 255, 0.3)' },
+            { name: '紫色', color: '#aa00ff', glow: 'rgba(170, 0, 255, 0.3)' },
+            { name: '金色', color: '#ffaa00', glow: 'rgba(255, 170, 0, 0.3)' }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        // 光束类
+        class Beam {
+            constructor(startX, startY, angle, isBurst = false) {
+                this.startX = startX;
+                this.startY = startY;
+                this.angle = angle;
+                this.length = isBurst ? 500 : 800;
+                this.width = (isBurst ? 20 : 5) * beamWidth;
+                this.life = isBurst ? 0.8 : 1;
+                this.decay = isBurst ? 0.02 : 0.005;
+                this.color = colors[currentColor].color;
+                this.glow = colors[currentColor].glow;
+                this.isBurst = isBurst;
+                
+                // 计算终点
+                this.endX = this.startX + Math.cos(this.angle) * this.length;
+                this.endY = this.startY + Math.sin(this.angle) * this.length;
+                
+                // 粒子
+                this.particles = [];
+                if (isBurst) {
+                    for (let i = 0; i < 10; i++) {
+                        this.particles.push({
+                            x: this.startX,
+                            y: this.startY,
+                            vx: Math.cos(this.angle + (Math.random() - 0.5) * 0.5) * (Math.random() * 5 + 2),
+                            vy: Math.sin(this.angle + (Math.random() - 0.5) * 0.5) * (Math.random() * 5 + 2),
+                            life: 1,
+                            size: Math.random() * 3 + 1
+                        });
+                    }
+                }
+            }
+
+            update() {
+                this.life -= this.decay;
+                
+                // 更新粒子
+                this.particles.forEach(particle => {
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+                    particle.life -= 0.03;
+                });
+                
+                return this.life > 0;
+            }
+
+            draw() {
+                ctx.save();
+                
+                // 光束渐变
+                const gradient = ctx.createLinearGradient(
+                    this.startX, this.startY,
+                    this.endX, this.endY
+                );
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.5, this.glow);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = this.width;
+                ctx.globalAlpha = this.life;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                ctx.lineCap = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(this.startX, this.startY);
+                ctx.lineTo(this.endX, this.endY);
+                ctx.stroke();
+                
+                // 绘制粒子
+                this.particles.forEach(particle => {
+                    if (particle.life <= 0) return;
+                    
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.globalAlpha = particle.life * this.life;
+                    ctx.shadowBlur = 10;
+                    ctx.fill();
+                });
+                
+                ctx.restore();
+            }
+        }
+
+        // 创建光束爆发
+        function createBurst(x, y) {
+            const numBeams = 8;
+            for (let i = 0; i < numBeams; i++) {
+                const angle = (i / numBeams) * Math.PI * 2;
+                beams.push(new Beam(x, y, angle, true));
+            }
+        }
+
+        // 创建跟随鼠标的光束
+        function createMouseBeam() {
+            if (currentMode === 0) {
+                const angle = Math.atan2(mouseY - height, mouseX - width / 2);
+                beams.push(new Beam(width / 2, height, angle));
+            } else {
+                // 多光束模式
+                for (let i = 0; i < 3; i++) {
+                    const angle = Math.atan2(mouseY - height, mouseX - width / 2) + (i - 1) * 0.2;
+                    beams.push(new Beam(width / 2, height, angle));
+                }
+            }
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 清空画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 自动创建光束
+            if (time % 5 === 0) {
+                createMouseBeam();
+            }
+
+            // 更新和绘制光束
+            for (let i = beams.length - 1; i >= 0; i--) {
+                const alive = beams[i].update();
+                if (!alive) {
+                    beams.splice(i, 1);
+                } else {
+                    beams[i].draw();
+                }
+            }
+
+            beamsCounter.textContent = beams.length;
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            createBurst(e.clientX, e.clientY);
+        });
+
+        // 滚轮调整光束宽度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            beamWidth = Math.max(0.3, Math.min(3.0, beamWidth - e.deltaY * 0.001));
+            widthDisplay.textContent = Math.round(beamWidth * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('modeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMode = (currentMode + 1) % 2;
+            const modes = ['单光束', '多光束'];
+            e.target.textContent = modes[currentMode];
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColor = (currentColor + 1) % colors.length;
+            e.target.textContent = colors[currentColor].name;
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            createBurst(mouseX, mouseY);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 创建多个爆发
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        createBurst(
+                            Math.random() * width,
+                            Math.random() * height
+                        );
+                    }, i * 100);
+                }
+            } else if (e.code === 'KeyM') {
+                // 切换模式
+                currentMode = (currentMode + 1) % 2;
+                const modes = ['单光束', '多光束'];
+                document.getElementById('modeBtn').textContent = modes[currentMode];
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+
+        // 初始爆发
+        setTimeout(() => {
+            createBurst(width / 2, height / 2);
+        }, 500);
+    </script>
+</body>
+</html>
