@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音乐可视化 | Music Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 
+                0 0 10px #ff00ff,
+                0 0 20px #00ffff,
+                0 0 30px #ffff00;
+            letter-spacing: 0.2em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(255, 255, 255, 0.7);
+            letter-spacing: 0.15em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #fff;
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="modeBtn">条形模式</button>
+        <button class="control-btn" id="colorBtn">彩虹色</button>
+        <button class="control-btn" id="playBtn">播放节拍</button>
+    </div>
+    
+    <div class="title">
+        <h1>音乐可视化</h1>
+        <div class="subtitle">感受节奏的律动</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标控制频率 · 点击触发节拍 · 滚轮调整敏感度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>频段数: <span id="bands">64</span></div>
+        <div>敏感度: <span id="sensitivity">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const bandsCounter = document.getElementById('bands');
+        const sensitivityDisplay = document.getElementById('sensitivity');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let sensitivity = 1.0;
+        let currentMode = 0;
+        let currentColorScheme = 0;
+        let isPlaying = false;
+        let beatInterval = null;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 音频可视化系统
+        const numBands = 64;
+        const frequencyData = [];
+        const smoothedData = [];
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+
+        // 颜色方案
+        const colorSchemes = [
+            { name: '彩虹色', getColor: (i, total) => `hsl(${(i / total) * 360}, 80%, 60%)` },
+            { name: '火焰色', getColor: (i, total) => `hsl(${20 + (i / total) * 40}, 100%, 50%)` },
+            { name: '海洋色', getColor: (i, total) => `hsl(${180 + (i / total) * 60}, 70%, 50%)` },
+            { name: '极光色', getColor: (i, total) => `hsl(${120 + (i / total) * 120}, 80%, 60%)` }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        // 初始化频率数据
+        function initFrequencyData() {
+            for (let i = 0; i < numBands; i++) {
+                frequencyData.push(0);
+                smoothedData.push(0);
+            }
+            bandsCounter.textContent = numBands;
+        }
+
+        // 生成模拟音频数据
+        function generateAudioData() {
+            const mouseInfluence = mouseX / width;
+            const timeInfluence = time * 0.05;
+            
+            for (let i = 0; i < numBands; i++) {
+                // 基础波形
+                const baseWave = Math.sin(timeInfluence + i * 0.2) * 0.5 + 0.5;
+                
+                // 鼠标影响
+                const mouseWave = Math.sin(mouseInfluence * Math.PI * 2 + i * 0.1) * 0.3;
+                
+                // 随机噪声
+                const noise = Math.random() * 0.2;
+                
+                // 组合
+                let value = (baseWave + mouseWave + noise) * sensitivity;
+                
+                // 如果播放节拍，增加节奏感
+                if (isPlaying) {
+                    const beat = Math.sin(time * 0.3) > 0.7 ? 0.5 : 0;
+                    value += beat * (1 - i / numBands);
+                }
+                
+                // 限制范围
+                value = Math.max(0, Math.min(1, value));
+                
+                // 平滑过渡
+                smoothedData[i] += (value - smoothedData[i]) * 0.3;
+                frequencyData[i] = smoothedData[i];
+            }
+        }
+
+        // 绘制条形图模式
+        function drawBars() {
+            const barWidth = width / numBands;
+            const colorFunc = colorSchemes[currentColorScheme].getColor;
+            
+            frequencyData.forEach((value, i) => {
+                const barHeight = value * height * 0.6;
+                const x = i * barWidth;
+                const y = height - barHeight;
+                
+                ctx.save();
+                
+                // 渐变填充
+                const gradient = ctx.createLinearGradient(x, y, x, height);
+                const color = colorFunc(i, numBands);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+                
+                ctx.fillStyle = gradient;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = color;
+                ctx.fillRect(x, y, barWidth - 2, barHeight);
+                
+                ctx.restore();
+            });
+        }
+
+        // 绘制圆形模式
+        function drawCircle() {
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const baseRadius = Math.min(width, height) * 0.2;
+            const colorFunc = colorSchemes[currentColorScheme].getColor;
+            
+            ctx.save();
+            
+            frequencyData.forEach((value, i) => {
+                const angle = (i / numBands) * Math.PI * 2 - Math.PI / 2;
+                const radius = baseRadius + value * baseRadius;
+                
+                const x1 = centerX + Math.cos(angle) * baseRadius;
+                const y1 = centerY + Math.sin(angle) * baseRadius;
+                const x2 = centerX + Math.cos(angle) * radius;
+                const y2 = centerY + Math.sin(angle) * radius;
+                
+                const color = colorFunc(i, numBands);
+                
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            });
+            
+            // 中心圆
+            const avgValue = frequencyData.reduce((a, b) => a + b, 0) / numBands;
+            const centerRadius = baseRadius * 0.3 + avgValue * baseRadius * 0.3;
+            
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, centerRadius
+            );
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
+            
+            ctx.fillStyle = gradient;
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#fff';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, centerRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        // 绘制波形模式
+        function drawWave() {
+            const colorFunc = colorSchemes[currentColorScheme].getColor;
+            
+            ctx.save();
+            
+            // 绘制多层波形
+            for (let layer = 0; layer < 3; layer++) {
+                const offset = layer * Math.PI / 3;
+                const alpha = 1 - layer * 0.3;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, height / 2);
+                
+                for (let i = 0; i < numBands; i++) {
+                    const x = (i / numBands) * width;
+                    const value = frequencyData[i];
+                    const y = height / 2 + Math.sin(time * 0.05 + i * 0.2 + offset) * value * height * 0.3;
+                    
+                    ctx.lineTo(x, y);
+                }
+                
+                const color = colorFunc(layer * 20, 60);
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = alpha;
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = color;
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+
+        // 触发节拍
+        function triggerBeat() {
+            // 增加所有频率值
+            for (let i = 0; i < numBands; i++) {
+                frequencyData[i] = Math.min(1, frequencyData[i] + 0.5);
+            }
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 清空画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 生成音频数据
+            generateAudioData();
+
+            // 根据模式绘制
+            switch (currentMode) {
+                case 0:
+                    drawBars();
+                    break;
+                case 1:
+                    drawCircle();
+                    break;
+                case 2:
+                    drawWave();
+                    break;
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            triggerBeat();
+        });
+
+        // 滚轮调整敏感度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            sensitivity = Math.max(0.2, Math.min(2.0, sensitivity - e.deltaY * 0.001));
+            sensitivityDisplay.textContent = Math.round(sensitivity * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('modeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMode = (currentMode + 1) % 3;
+            const modes = ['条形模式', '圆形模式', '波形模式'];
+            e.target.textContent = modes[currentMode];
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColorScheme = (currentColorScheme + 1) % colorSchemes.length;
+            e.target.textContent = colorSchemes[currentColorScheme].name;
+        });
+
+        document.getElementById('playBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            isPlaying = !isPlaying;
+            e.target.textContent = isPlaying ? '停止节拍' : '播放节拍';
+            e.target.classList.toggle('active', isPlaying);
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            triggerBeat();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                triggerBeat();
+            } else if (e.code === 'KeyP') {
+                // 切换播放
+                isPlaying = !isPlaying;
+                document.getElementById('playBtn').textContent = isPlaying ? '停止节拍' : '播放节拍';
+                document.getElementById('playBtn').classList.toggle('active', isPlaying);
+            }
+        });
+
+        // 初始化
+        resize();
+        initFrequencyData();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
