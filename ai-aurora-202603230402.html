@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极光奇观 | Aurora Borealis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 32px;
+            font-weight: 300;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 0 20px rgba(100, 255, 218, 0.5);
+            animation: titleGlow 3s ease-in-out infinite;
+        }
+        
+        @keyframes titleGlow {
+            0%, 100% { text-shadow: 0 0 20px rgba(100, 255, 218, 0.5); }
+            50% { text-shadow: 0 0 40px rgba(100, 255, 218, 0.8), 0 0 60px rgba(100, 255, 218, 0.4); }
+        }
+        
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 2s ease-in-out infinite;
+        }
+        
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">极光奇观</div>
+    <canvas id="aurora"></canvas>
+    <div class="info">移动鼠标控制极光方向 · 点击产生能量波动</div>
+    
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('aurora');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance optimization: pre-calculate values
+        const TWO_PI = Math.PI * 2;
+        const EPSILON = 0.001;
+        
+        // Mouse interaction
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let targetMouseX = mouseX;
+        let targetMouseY = mouseY;
+        let ripples = [];
+        
+        // Aurora parameters
+        const layers = 5;
+        const particles = [];
+        const stars = [];
+        
+        // Create background stars
+        function createStars() {
+            const starCount = Math.floor((width * height) / 8000);
+            for (let i = 0; i < starCount; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height * 0.7,
+                    size: Math.random() * 2 + 0.5,
+                    twinkleSpeed: Math.random() * 0.02 + 0.01,
+                    phase: Math.random() * TWO_PI
+                });
+            }
+        }
+        
+        // Create aurora particles
+        function createParticles() {
+            for (let layer = 0; layer < layers; layer++) {
+                const particleCount = 80 + layer * 20;
+                for (let i = 0; i < particleCount; i++) {
+                    particles.push({
+                        x: (i / particleCount) * width,
+                        baseY: height * 0.3 + layer * 40,
+                        y: 0,
+                        layer: layer,
+                        speed: 0.5 + Math.random() * 0.5,
+                        amplitude: 30 + Math.random() * 50,
+                        frequency: 0.005 + Math.random() * 0.01,
+                        phase: Math.random() * TWO_PI,
+                        opacity: 0.3 + Math.random() * 0.4,
+                        hue: 120 + layer * 30 + Math.random() * 20 // Green to cyan to purple
+                    });
+                }
+            }
+        }
+        
+        // Initialize
+        createStars();
+        createParticles();
+        
+        // Ripple effect on click
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = Math.max(width, height);
+                this.speed = 8;
+                this.opacity = 1;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.opacity = 1 - (this.radius / this.maxRadius);
+                return this.opacity > 0;
+            }
+            
+            draw(ctx) {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, this.radius * 0.8,
+                    this.x, this.y, this.radius
+                );
+                gradient.addColorStop(0, `rgba(100, 255, 218, 0)`);
+                gradient.addColorStop(0.5, `rgba(100, 255, 218, ${this.opacity * 0.3})`);
+                gradient.addColorStop(1, `rgba(100, 255, 218, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            targetMouseX = e.clientX;
+            targetMouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            ripples.push(new Ripple(e.clientX, e.clientY));
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            targetMouseX = e.touches[0].clientX;
+            targetMouseY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            ripples.push(new Ripple(e.touches[0].clientX, e.touches[0].clientY));
+        });
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particles.length = 0;
+            stars.length = 0;
+            createStars();
+            createParticles();
+        });
+        
+        // Time tracking
+        let time = 0;
+        let lastTime = performance.now();
+        
+        // Main animation loop with 60fps optimization
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            // Smooth mouse following
+            mouseX += (targetMouseX - mouseX) * 0.05;
+            mouseY += (targetMouseY - mouseY) * 0.05;
+            
+            // Clear with gradient background
+            const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+            bgGradient.addColorStop(0, '#000511');
+            bgGradient.addColorStop(0.5, '#001122');
+            bgGradient.addColorStop(1, '#002233');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw stars
+            const starTime = time * 0.001;
+            stars.forEach(star => {
+                const twinkle = Math.sin(starTime * star.twinkleSpeed * 100 + star.phase);
+                const opacity = 0.3 + twinkle * 0.7;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, TWO_PI);
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                ctx.fill();
+            });
+            
+            // Mouse influence calculation
+            const mouseInfluenceX = (mouseX - width / 2) / width;
+            const mouseInfluenceY = (mouseY - height / 2) / height;
+            
+            // Draw aurora layers (back to front)
+            for (let layer = layers - 1; layer >= 0; layer--) {
+                const layerParticles = particles.filter(p => p.layer === layer);
+                
+                ctx.beginPath();
+                ctx.moveTo(0, height);
+                
+                // Create smooth aurora curve
+                layerParticles.forEach((p, i) => {
+                    const wave1 = Math.sin(time * p.frequency * 0.001 + p.phase) * p.amplitude;
+                    const wave2 = Math.sin(time * p.frequency * 0.0015 + p.phase * 1.5) * p.amplitude * 0.5;
+                    const mouseWave = Math.sin(p.x * 0.01 + time * 0.001) * mouseInfluenceY * 50;
+                    
+                    p.y = p.baseY + wave1 + wave2 + mouseWave + mouseInfluenceX * 30;
+                    
+                    if (i === 0) {
+                        ctx.lineTo(p.x, p.y);
+                    } else {
+                        const prevP = layerParticles[i - 1];
+                        const cpX = (prevP.x + p.x) / 2;
+                        const cpY = (prevP.y + p.y) / 2;
+                        ctx.quadraticCurveTo(prevP.x, prevP.y, cpX, cpY);
+                    }
+                });
+                
+                ctx.lineTo(width, height);
+                ctx.closePath();
+                
+                // Create aurora gradient
+                const gradient = ctx.createLinearGradient(0, p => p.baseY - 100, 0, height);
+                const hue = 120 + layer * 30 + Math.sin(time * 0.0005) * 20;
+                gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0)`);
+                gradient.addColorStop(0.3, `hsla(${hue}, 100%, 60%, ${0.1 + layer * 0.05})`);
+                gradient.addColorStop(0.6, `hsla(${hue + 30}, 100%, 50%, ${0.15 + layer * 0.08})`);
+                gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 40%, 0)`);
+                
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // Add glow effect
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = `hsla(${hue}, 100%, 60%, 0.5)`;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+            
+            // Draw vertical aurora curtains
+            const curtainCount = 15;
+            for (let i = 0; i < curtainCount; i++) {
+                const x = (i / curtainCount) * width + Math.sin(time * 0.001 + i) * 20;
+                const baseHeight = height * 0.4;
+                const waveHeight = Math.sin(time * 0.002 + i * 0.5) * 100;
+                
+                const curtainGradient = ctx.createLinearGradient(x, 0, x, baseHeight + waveHeight);
+                const hue = 150 + Math.sin(time * 0.001 + i) * 40;
+                curtainGradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0)`);
+                curtainGradient.addColorStop(0.3, `hsla(${hue}, 100%, 60%, 0.1)`);
+                curtainGradient.addColorStop(0.7, `hsla(${hue}, 100%, 50%, 0.05)`);
+                curtainGradient.addColorStop(1, `hsla(${hue}, 100%, 40%, 0)`);
+                
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x + 5 + mouseInfluenceX * 10, baseHeight + waveHeight);
+                ctx.lineTo(x - 5 + mouseInfluenceX * 10, baseHeight + waveHeight);
+                ctx.lineTo(x, 0);
+                ctx.fillStyle = curtainGradient;
+                ctx.fill();
+            }
+            
+            // Draw ripples
+            ripples = ripples.filter(ripple => {
+                ripple.draw(ctx);
+                return ripple.update();
+            });
+            
+            // Add subtle vignette
+            const vignetteGradient = ctx.createRadialGradient(
+                width / 2, height / 2, height * 0.3,
+                width / 2, height / 2, height
+            );
+            vignetteGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            vignetteGradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)');
+            ctx.fillStyle = vignetteGradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
