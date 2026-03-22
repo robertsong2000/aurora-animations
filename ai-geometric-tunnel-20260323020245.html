@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何隧道 | Geometric Tunnel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(0, 255, 255, 0.8),
+                0 0 40px rgba(255, 0, 255, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(0, 255, 255, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            color: rgba(0, 255, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: rgba(0, 255, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(0, 255, 255, 0.3);
+            border-color: rgba(0, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="shapeBtn">正方形</button>
+        <button class="control-btn" id="colorBtn">青色</button>
+        <button class="control-btn" id="speedBtn">正常速度</button>
+    </div>
+    
+    <div class="title">
+        <h1>几何隧道</h1>
+        <div class="subtitle">穿越无尽的维度</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标控制隧道方向 · 点击切换形状 · 滚轮调整隧道速度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>层数: <span id="layers">20</span></div>
+        <div>速度: <span id="speed">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const layersCounter = document.getElementById('layers');
+        const speedDisplay = document.getElementById('speed');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let tunnelSpeed = 1.0;
+        let currentShape = 0;
+        let currentColor = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let centerX, centerY;
+
+        // 隧道系统
+        const numLayers = 20;
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+        let depth = 0;
+
+        // 颜色方案
+        const colors = [
+            { name: '青色', primary: '#00ffff', secondary: '#ff00ff' },
+            { name: '紫色', primary: '#ff00ff', secondary: '#00ffff' },
+            { name: '绿色', primary: '#00ff00', secondary: '#ffff00' },
+            { name: '橙色', primary: '#ff8800', secondary: '#ff0088' }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            mouseX = centerX;
+            mouseY = centerY;
+        }
+
+        // 绘制形状
+        function drawShape(x, y, size, rotation, alpha) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(rotation);
+            
+            const color = colors[currentColor];
+            ctx.strokeStyle = color.primary;
+            ctx.globalAlpha = alpha;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = color.secondary;
+            
+            ctx.beginPath();
+            
+            switch (currentShape) {
+                case 0: // 正方形
+                    ctx.rect(-size / 2, -size / 2, size, size);
+                    break;
+                case 1: // 三角形
+                    ctx.moveTo(0, -size / 2);
+                    ctx.lineTo(size / 2, size / 2);
+                    ctx.lineTo(-size / 2, size / 2);
+                    ctx.closePath();
+                    break;
+                case 2: // 六边形
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+                        const px = Math.cos(angle) * size / 2;
+                        const py = Math.sin(angle) * size / 2;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    break;
+                case 3: // 圆形
+                    ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+                    break;
+            }
+            
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 绘制隧道
+        function drawTunnel() {
+            const mouseOffsetX = (mouseX - centerX) * 0.3;
+            const mouseOffsetY = (mouseY - centerY) * 0.3;
+            
+            for (let i = 0; i < numLayers; i++) {
+                // 计算深度
+                const layerDepth = (depth + i * 0.1) % 2;
+                const perspective = 1 - layerDepth;
+                
+                if (perspective <= 0) continue;
+                
+                // 计算大小和位置
+                const size = 100 + perspective * 800;
+                const x = centerX + mouseOffsetX * (1 - perspective);
+                const y = centerY + mouseOffsetY * (1 - perspective);
+                
+                // 旋转
+                const rotation = time * 0.01 + i * 0.1;
+                
+                // 透明度
+                const alpha = perspective * 0.8;
+                
+                // 绘制形状
+                drawShape(x, y, size, rotation, alpha);
+            }
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 更新深度
+            depth += 0.02 * tunnelSpeed;
+            
+            // 清空画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制隧道
+            drawTunnel();
+
+            // 绘制中心点
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.8;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            currentShape = (currentShape + 1) % 4;
+            const shapes = ['正方形', '三角形', '六边形', '圆形'];
+            document.getElementById('shapeBtn').textContent = shapes[currentShape];
+        });
+
+        // 滚轮调整速度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            tunnelSpeed = Math.max(0.2, Math.min(3.0, tunnelSpeed - e.deltaY * 0.001));
+            speedDisplay.textContent = Math.round(tunnelSpeed * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('shapeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentShape = (currentShape + 1) % 4;
+            const shapes = ['正方形', '三角形', '六边形', '圆形'];
+            e.target.textContent = shapes[currentShape];
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColor = (currentColor + 1) % colors.length;
+            e.target.textContent = colors[currentColor].name;
+        });
+
+        document.getElementById('speedBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            tunnelSpeed = tunnelSpeed === 1.0 ? 2.0 : (tunnelSpeed === 2.0 ? 0.5 : 1.0);
+            const labels = { 0.5: '慢速', 1.0: '正常速度', 2.0: '快速' };
+            e.target.textContent = labels[tunnelSpeed];
+            speedDisplay.textContent = Math.round(tunnelSpeed * 100);
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                currentShape = (currentShape + 1) % 4;
+                const shapes = ['正方形', '三角形', '六边形', '圆形'];
+                document.getElementById('shapeBtn').textContent = shapes[currentShape];
+            } else if (e.code === 'KeyS') {
+                // 切换速度
+                tunnelSpeed = tunnelSpeed === 1.0 ? 2.0 : (tunnelSpeed === 2.0 ? 0.5 : 1.0);
+                const labels = { 0.5: '慢速', 1.0: '正常速度', 2.0: '快速' };
+                document.getElementById('speedBtn').textContent = labels[tunnelSpeed];
+                speedDisplay.textContent = Math.round(tunnelSpeed * 100);
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
