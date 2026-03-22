@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>银河系 | Galaxy Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Georgia', serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(200, 220, 255, 0.8),
+                0 0 40px rgba(150, 180, 255, 0.6),
+                0 0 60px rgba(100, 150, 255, 0.4);
+            letter-spacing: 0.5em;
+            margin-bottom: 20px;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(-50%, -50%); }
+            50% { transform: translate(-50%, -52%); }
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            color: rgba(200, 220, 255, 0.6);
+            letter-spacing: 0.3em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(200, 220, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 20, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 150, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 20, 0.6);
+            border: 1px solid rgba(100, 150, 255, 0.3);
+            color: rgba(200, 220, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(100, 150, 255, 0.2);
+            border-color: rgba(100, 150, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(100, 150, 255, 0.3);
+            border-color: rgba(100, 150, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn active" id="spiralBtn">螺旋模式</button>
+        <button class="control-btn" id="orbitBtn">轨道模式</button>
+        <button class="control-btn" id="warpBtn">跃迁模式</button>
+    </div>
+    
+    <div class="title">
+        <h1>银河系</h1>
+        <div class="subtitle">探索无尽的宇宙</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标旋转视角 · 点击创建恒星诞生 · 滚轮调整缩放
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>恒星数: <span id="stars">0</span></div>
+        <div>缩放: <span id="zoom">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const starsCounter = document.getElementById('stars');
+        const zoomDisplay = document.getElementById('zoom');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let zoomLevel = 1.0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let centerX, centerY;
+
+        // 银河参数
+        const stars = [];
+        const dustClouds = [];
+        const maxStars = 3000;
+        const maxDustClouds = 50;
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let rotationX = 0;
+        let rotationY = 0;
+        let time = 0;
+        let currentMode = 'spiral';
+
+        // 颜色主题
+        const starColors = [
+            '#ffffff',  // 白色
+            '#aaaaff',  // 蓝白
+            '#ffffaa',  // 黄白
+            '#ffaaaa',  // 红白
+            '#aaffff',  // 青白
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        // 恒星类
+        class Star {
+            constructor(armIndex = -1, isCore = false) {
+                this.isCore = isCore;
+                
+                if (isCore) {
+                    // 核心恒星
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = Math.random() * 50;
+                    this.x = Math.cos(angle) * radius;
+                    this.y = Math.sin(angle) * radius;
+                    this.z = (Math.random() - 0.5) * 20;
+                    this.size = Math.random() * 1.5 + 0.5;
+                    this.brightness = Math.random() * 0.5 + 0.5;
+                } else if (armIndex >= 0) {
+                    // 旋臂恒星
+                    const armAngle = (armIndex / 4) * Math.PI * 2;
+                    const distance = Math.random() * 300 + 50;
+                    const spread = (Math.random() - 0.5) * 60;
+                    const spiralAngle = armAngle + (distance / 300) * Math.PI * 2;
+                    
+                    this.x = Math.cos(spiralAngle) * distance + spread;
+                    this.y = Math.sin(spiralAngle) * distance + spread;
+                    this.z = (Math.random() - 0.5) * 100;
+                    this.size = Math.random() * 2 + 0.5;
+                    this.brightness = Math.random() * 0.7 + 0.3;
+                } else {
+                    // 随机恒星
+                    this.x = (Math.random() - 0.5) * width;
+                    this.y = (Math.random() - 0.5) * height;
+                    this.z = (Math.random() - 0.5) * 500;
+                    this.size = Math.random() * 1.5 + 0.5;
+                    this.brightness = Math.random() * 0.5 + 0.5;
+                }
+                
+                this.originalX = this.x;
+                this.originalY = this.y;
+                this.originalZ = this.z;
+                
+                this.color = starColors[Math.floor(Math.random() * starColors.length)];
+                this.twinkleSpeed = Math.random() * 0.05 + 0.01;
+                this.twinklePhase = Math.random() * Math.PI * 2;
+                this.orbitSpeed = (Math.random() - 0.5) * 0.001;
+            }
+
+            update() {
+                this.twinklePhase += this.twinkleSpeed;
+                
+                if (currentMode === 'orbit') {
+                    // 轨道模式：恒星围绕中心旋转
+                    const angle = Math.atan2(this.originalY, this.originalX) + this.orbitSpeed;
+                    const distance = Math.sqrt(this.originalX ** 2 + this.originalY ** 2);
+                    this.x = Math.cos(angle) * distance;
+                    this.y = Math.sin(angle) * distance;
+                } else if (currentMode === 'warp') {
+                    // 跃迁模式：恒星向外扩散
+                    const distance = Math.sqrt(this.x ** 2 + this.y ** 2);
+                    const angle = Math.atan2(this.y, this.x);
+                    const newDistance = distance + (distance * 0.001);
+                    
+                    if (newDistance > 500) {
+                        this.x = this.originalX;
+                        this.y = this.originalY;
+                    } else {
+                        this.x = Math.cos(angle) * newDistance;
+                        this.y = Math.sin(angle) * newDistance;
+                    }
+                }
+            }
+
+            project() {
+                // 应用旋转
+                const cosX = Math.cos(rotationX);
+                const sinX = Math.sin(rotationX);
+                const cosY = Math.cos(rotationY);
+                const sinY = Math.sin(rotationY);
+                
+                // 绕Y轴旋转
+                let x = this.x * cosY - this.z * sinY;
+                let z = this.x * sinY + this.z * cosY;
+                
+                // 绕X轴旋转
+                let y = this.y * cosX - z * sinX;
+                z = this.y * sinX + z * cosX;
+                
+                // 透视投影
+                const perspective = 800;
+                const scale = perspective / (perspective + z) * zoomLevel;
+                
+                return {
+                    x: centerX + x * scale,
+                    y: centerY + y * scale,
+                    scale: scale,
+                    z: z
+                };
+            }
+
+            draw() {
+                const projected = this.project();
+                
+                // 背面剔除
+                if (projected.scale <= 0) return;
+                
+                // 屏幕外剔除
+                if (projected.x < -50 || projected.x > width + 50 ||
+                    projected.y < -50 || projected.y > height + 50) return;
+                
+                const twinkle = (Math.sin(this.twinklePhase) + 1) / 2;
+                const alpha = this.brightness * (0.5 + twinkle * 0.5) * projected.scale;
+                const size = this.size * projected.scale;
+                
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = size * 3;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(projected.x, projected.y, size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 星云类
+        class DustCloud {
+            constructor() {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = Math.random() * 250 + 50;
+                
+                this.x = Math.cos(angle) * distance;
+                this.y = Math.sin(angle) * distance;
+                this.z = (Math.random() - 0.5) * 100;
+                this.size = Math.random() * 100 + 50;
+                this.color = Math.random() > 0.5 ? 
+                    'rgba(150, 100, 255, 0.1)' : 
+                    'rgba(255, 150, 100, 0.1)';
+            }
+
+            draw() {
+                const cosX = Math.cos(rotationX);
+                const sinX = Math.sin(rotationX);
+                const cosY = Math.cos(rotationY);
+                const sinY = Math.sin(rotationY);
+                
+                let x = this.x * cosY - this.z * sinY;
+                let z = this.x * sinY + this.z * cosY;
+                let y = this.y * cosX - z * sinX;
+                z = this.y * sinX + z * cosX;
+                
+                const perspective = 800;
+                const scale = perspective / (perspective + z) * zoomLevel;
+                
+                if (scale <= 0) return;
+                
+                const screenX = centerX + x * scale;
+                const screenY = centerY + y * scale;
+                const size = this.size * scale;
+                
+                ctx.save();
+                ctx.globalAlpha = 0.3 * scale;
+                
+                const gradient = ctx.createRadialGradient(
+                    screenX, screenY, 0,
+                    screenX, screenY, size
+                );
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 初始化银河
+        function initGalaxy() {
+            stars.length = 0;
+            dustClouds.length = 0;
+            
+            // 创建核心恒星
+            for (let i = 0; i < 200; i++) {
+                stars.push(new Star(-1, true));
+            }
+            
+            // 创建旋臂恒星
+            for (let arm = 0; arm < 4; arm++) {
+                for (let i = 0; i < 600; i++) {
+                    stars.push(new Star(arm, false));
+                }
+            }
+            
+            // 创建随机背景恒星
+            for (let i = 0; i < 400; i++) {
+                stars.push(new Star(-1, false));
+            }
+            
+            // 创建星云
+            for (let i = 0; i < maxDustClouds; i++) {
+                dustClouds.push(new DustCloud());
+            }
+            
+            starsCounter.textContent = stars.length;
+        }
+
+        // 创建恒星诞生效果
+        function createStarBirth(x, y) {
+            const worldX = (x - centerX) / zoomLevel;
+            const worldY = (y - centerY) / zoomLevel;
+            
+            for (let i = 0; i < 20; i++) {
+                const star = new Star(-1, false);
+                star.x = worldX + (Math.random() - 0.5) * 50;
+                star.y = worldY + (Math.random() - 0.5) * 50;
+                star.z = (Math.random() - 0.5) * 50;
+                star.size = Math.random() * 2 + 1;
+                star.brightness = 1;
+                star.color = '#ffffff';
+                stars.push(star);
+            }
+            
+            starsCounter.textContent = stars.length;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time += 0.01;
+
+            // 平滑旋转
+            rotationX += (targetRotationX - rotationX) * 0.05;
+            rotationY += (targetRotationY - rotationY) * 0.05;
+
+            // 自动旋转
+            if (currentMode === 'spiral') {
+                targetRotationY += 0.002;
+            }
+
+            // 清空画布
+            ctx.fillStyle = '#000010';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制星云
+            dustClouds.forEach(cloud => cloud.draw());
+
+            // 更新和绘制恒星
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+
+            // 绘制银河中心发光
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, 100 * zoomLevel
+            );
+            gradient.addColorStop(0, 'rgba(255, 255, 200, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(255, 200, 150, 0.1)');
+            gradient.addColorStop(1, 'transparent');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 100 * zoomLevel, 0, Math.PI * 2);
+            ctx.fill();
+
+            requestAnimationFrame(animate);
+        }
+
+        // 模式切换
+        function setMode(mode) {
+            currentMode = mode;
+            
+            document.querySelectorAll('.control-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            if (mode === 'spiral') {
+                document.getElementById('spiralBtn').classList.add('active');
+            } else if (mode === 'orbit') {
+                document.getElementById('orbitBtn').classList.add('active');
+            } else if (mode === 'warp') {
+                document.getElementById('warpBtn').classList.add('active');
+            }
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // 鼠标位置影响旋转
+            targetRotationX = ((mouseY - centerY) / height) * 0.5;
+            targetRotationY += ((mouseX - centerX) / width) * 0.001;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            createStarBirth(e.clientX, e.clientY);
+        });
+
+        // 滚轮调整缩放
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            zoomLevel = Math.max(0.3, Math.min(3.0, zoomLevel - e.deltaY * 0.001));
+            zoomDisplay.textContent = Math.round(zoomLevel * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('spiralBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMode('spiral');
+        });
+
+        document.getElementById('orbitBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMode('orbit');
+        });
+
+        document.getElementById('warpBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            setMode('warp');
+        });
+
+        // 触摸支持
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            lastTouchX = touch.clientX;
+            lastTouchY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - lastTouchX;
+            const deltaY = touch.clientY - lastTouchY;
+            
+            targetRotationY += deltaX * 0.005;
+            targetRotationX += deltaY * 0.005;
+            
+            lastTouchX = touch.clientX;
+            lastTouchY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (e.changedTouches.length === 1) {
+                const touch = e.changedTouches[0];
+                const deltaX = Math.abs(touch.clientX - lastTouchX);
+                const deltaY = Math.abs(touch.clientY - lastTouchY);
+                
+                if (deltaX < 10 && deltaY < 10) {
+                    createStarBirth(touch.clientX, touch.clientY);
+                }
+            }
+        });
+
+        // 初始化
+        resize();
+        initGalaxy();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
