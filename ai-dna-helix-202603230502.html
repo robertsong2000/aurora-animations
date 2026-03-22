@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNA螺旋 | Double Helix</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: radial-gradient(ellipse at center, #0a0e27 0%, #000000 100%);
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 136, 0.8);
+            font-size: 13px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+            letter-spacing: 2px;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 136, 0.9);
+            font-size: 36px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 
+                0 0 20px rgba(0, 255, 136, 0.8),
+                0 0 40px rgba(0, 255, 136, 0.4);
+            animation: pulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                text-shadow: 
+                    0 0 20px rgba(0, 255, 136, 0.8),
+                    0 0 40px rgba(0, 255, 136, 0.4);
+            }
+            50% { 
+                text-shadow: 
+                    0 0 30px rgba(0, 255, 136, 1),
+                    0 0 60px rgba(0, 255, 136, 0.6),
+                    0 0 80px rgba(0, 255, 136, 0.3);
+            }
+        }
+        
+        .stats {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            color: rgba(0, 255, 136, 0.6);
+            font-size: 12px;
+            text-align: right;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">DNA</div>
+    <canvas id="dna"></canvas>
+    <div class="stats" id="stats"></div>
+    <div class="info">← → 控制旋转 · 点击生成新碱基对 · 滚轮调整速度</div>
+    
+    <script>
+        const canvas = document.getElementById('dna');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        const PI = Math.PI;
+        
+        // DNA parameters
+        let rotationSpeed = 0.02;
+        let rotationAngle = 0;
+        let basePairs = [];
+        let particles = [];
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        
+        // Base pair colors (A-T, G-C)
+        const baseColors = {
+            'A': '#ff6b6b',  // Adenine - Red
+            'T': '#4ecdc4',  // Thymine - Cyan
+            'G': '#ffe66d',  // Guanine - Yellow
+            'C': '#95e1d3'   // Cytosine - Green
+        };
+        
+        const bases = ['A', 'T', 'G', 'C'];
+        const complementary = { 'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G' };
+        
+        // DNA structure
+        class BasePair {
+            constructor(y, index) {
+                this.y = y;
+                this.index = index;
+                this.base1 = bases[Math.floor(Math.random() * 4)];
+                this.base2 = complementary[this.base1];
+                this.phase = index * 0.3;
+                this.active = true;
+                this.birthTime = Date.now();
+                this.scale = 0;
+            }
+            
+            update(time) {
+                // Animate scale on birth
+                const age = (Date.now() - this.birthTime) / 1000;
+                this.scale = Math.min(1, age * 3);
+            }
+        }
+        
+        // Particle system for atmosphere
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.size = Math.random() * 2 + 0.5;
+                this.opacity = Math.random() * 0.5 + 0.1;
+                this.life = Math.random() * 200 + 100;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+                
+                if (this.life <= 0 || this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.reset();
+                }
+            }
+            
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fillStyle = `rgba(0, 255, 136, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+        
+        // Initialize DNA
+        function initDNA() {
+            basePairs = [];
+            const pairCount = 25;
+            const spacing = height / pairCount;
+            
+            for (let i = 0; i < pairCount; i++) {
+                basePairs.push(new BasePair(spacing * i + spacing / 2, i));
+            }
+        }
+        
+        // Initialize particles
+        function initParticles() {
+            particles = [];
+            const particleCount = Math.min(100, Math.floor((width * height) / 20000));
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        initDNA();
+        initParticles();
+        
+        // Draw helix strand
+        function drawStrand(x, y, radius, angle, color, glowColor) {
+            // Glow effect
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 2, 0, TWO_PI);
+            const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 2);
+            glowGradient.addColorStop(0, glowColor);
+            glowGradient.addColorStop(1, 'transparent');
+            ctx.fillStyle = glowGradient;
+            ctx.fill();
+            
+            // Main sphere
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, TWO_PI);
+            const gradient = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, 0, x, y, radius);
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.3, color);
+            gradient.addColorStop(1, color.replace(')', ', 0.6)').replace('rgb', 'rgba'));
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+        
+        // Draw connection between base pairs
+        function drawConnection(x1, y1, x2, y2, color1, color2) {
+            const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+            gradient.addColorStop(0, color1);
+            gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.3)');
+            gradient.addColorStop(1, color2);
+            
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Connection glow
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = 8;
+            ctx.globalAlpha = 0.2;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+        
+        // Event listeners
+        let isDragging = false;
+        let lastMouseX = mouseX;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            if (isDragging) {
+                const deltaX = mouseX - lastMouseX;
+                rotationAngle += deltaX * 0.01;
+                lastMouseX = mouseX;
+            }
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            // Add new base pair at click position
+            const newPair = new BasePair(e.clientY, basePairs.length);
+            newPair.x = e.clientX;
+            basePairs.push(newPair);
+            
+            // Create burst particles
+            for (let i = 0; i < 10; i++) {
+                const particle = new Particle();
+                particle.x = e.clientX;
+                particle.y = e.clientY;
+                particle.vx = (Math.random() - 0.5) * 5;
+                particle.vy = (Math.random() - 0.5) * 5;
+                particle.size = Math.random() * 3 + 2;
+                particle.opacity = 0.8;
+                particles.push(particle);
+            }
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            rotationSpeed += e.deltaY * -0.00005;
+            rotationSpeed = Math.max(0.005, Math.min(0.1, rotationSpeed));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - mouseX;
+            rotationAngle += deltaX * 0.01;
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            const newPair = new BasePair(touch.clientY, basePairs.length);
+            basePairs.push(newPair);
+        });
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+        });
+        
+        // Main animation loop
+        let time = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            // FPS calculation
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Clear canvas
+            ctx.fillStyle = 'rgba(10, 14, 39, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Update rotation
+            rotationAngle += rotationSpeed;
+            
+            // Draw particles
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw(ctx);
+            });
+            
+            // DNA parameters
+            const centerX = width / 2;
+            const helixRadius = Math.min(width, height) * 0.15;
+            const sphereRadius = 8;
+            
+            // Draw back connections first (depth sorting)
+            basePairs.forEach((pair, i) => {
+                pair.update(time);
+                
+                const angle = rotationAngle + pair.phase;
+                const scale = pair.scale;
+                
+                const x1 = centerX + Math.cos(angle) * helixRadius * scale;
+                const x2 = centerX + Math.cos(angle + PI) * helixRadius * scale;
+                
+                const z1 = Math.sin(angle);
+                const z2 = Math.sin(angle + PI);
+                
+                // Only draw if behind
+                if (z1 < 0 || z2 < 0) {
+                    const alpha = 0.3 + z1 * 0.2;
+                    const color1 = baseColors[pair.base1];
+                    const color2 = baseColors[pair.base2];
+                    
+                    ctx.globalAlpha = Math.max(0.1, alpha) * scale;
+                    drawConnection(x1, pair.y, x2, pair.y, color1, color2);
+                    ctx.globalAlpha = 1;
+                }
+            });
+            
+            // Draw DNA strands
+            basePairs.forEach((pair, i) => {
+                const angle = rotationAngle + pair.phase;
+                const scale = pair.scale;
+                
+                const x1 = centerX + Math.cos(angle) * helixRadius * scale;
+                const x2 = centerX + Math.cos(angle + PI) * helixRadius * scale;
+                
+                const z1 = Math.sin(angle);
+                const z2 = Math.sin(angle + PI);
+                
+                // Depth-based rendering
+                const size1 = sphereRadius * (1 + z1 * 0.3) * scale;
+                const size2 = sphereRadius * (1 + z2 * 0.3) * scale;
+                
+                const color1 = baseColors[pair.base1];
+                const color2 = baseColors[pair.base2];
+                
+                // Draw front connections
+                if (z1 >= 0 && z2 >= 0) {
+                    ctx.globalAlpha = scale;
+                    drawConnection(x1, pair.y, x2, pair.y, color1, color2);
+                    ctx.globalAlpha = 1;
+                }
+                
+                // Draw spheres with depth
+                if (z1 >= 0) {
+                    drawStrand(x1, pair.y, size1, angle, color1, color1.replace(')', ', 0.3)').replace('rgb', 'rgba'));
+                }
+                
+                if (z2 >= 0) {
+                    drawStrand(x2, pair.y, size2, angle + PI, color2, color2.replace(')', ', 0.3)').replace('rgb', 'rgba'));
+                }
+                
+                // Draw back spheres
+                if (z1 < 0) {
+                    ctx.globalAlpha = 0.4 * scale;
+                    drawStrand(x1, pair.y, size1 * 0.8, angle, color1, color1.replace(')', ', 0.2)').replace('rgb', 'rgba'));
+                    ctx.globalAlpha = 1;
+                }
+                
+                if (z2 < 0) {
+                    ctx.globalAlpha = 0.4 * scale;
+                    drawStrand(x2, pair.y, size2 * 0.8, angle + PI, color2, color2.replace(')', ', 0.2)').replace('rgb', 'rgba'));
+                    ctx.globalAlpha = 1;
+                }
+                
+                // Draw base labels
+                if (z1 > 0.5 && scale > 0.8) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.globalAlpha = z1 * scale;
+                    ctx.fillText(pair.base1, x1, pair.y + 4);
+                    ctx.globalAlpha = 1;
+                }
+                
+                if (z2 > 0.5 && scale > 0.8) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.globalAlpha = z2 * scale;
+                    ctx.fillText(pair.base2, x2, pair.y + 4);
+                    ctx.globalAlpha = 1;
+                }
+            });
+            
+            // Draw backbone curves
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
+            ctx.lineWidth = 2;
+            
+            for (let i = 0; i <= TWO_PI; i += 0.1) {
+                const x = centerX + Math.cos(rotationAngle + i) * helixRadius;
+                const y = (i / TWO_PI) * height;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Base Pairs: ${basePairs.length}<br>
+                Rotation: ${(rotationAngle % TWO_PI).toFixed(2)}<br>
+                Speed: ${rotationSpeed.toFixed(3)}
+            `;
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
