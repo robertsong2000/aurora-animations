@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极光脉冲 | Aurora Pulse</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #000011 0%, #000033 50%, #000022 100%);
+            font-family: 'Georgia', serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 300;
+            color: rgba(100, 255, 200, 0.9);
+            text-shadow: 
+                0 0 20px rgba(100, 255, 200, 0.8),
+                0 0 40px rgba(100, 200, 255, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(100, 255, 200, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(100, 255, 200, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 255, 200, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(100, 255, 200, 0.3);
+            color: rgba(100, 255, 200, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(100, 255, 200, 0.2);
+            border-color: rgba(100, 255, 200, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(100, 255, 200, 0.3);
+            border-color: rgba(100, 255, 200, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="modeBtn">波浪模式</button>
+        <button class="control-btn" id="colorBtn">绿色</button>
+    </div>
+    
+    <div class="title">
+        <h1>极光脉冲</h1>
+        <div class="subtitle">北极光的舞动</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标控制极光强度 · 点击触发极光脉冲 · 滚轮调整波动速度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>波动数: <span id="waves">5</span></div>
+        <div>速度: <span id="speed">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const wavesCounter = document.getElementById('waves');
+        const speedDisplay = document.getElementById('speed');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let waveSpeed = 1.0;
+        let currentMode = 0;
+        let currentColor = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 极光系统
+        const numWaves = 5;
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+
+        // 颜色方案
+        const colors = [
+            { name: '绿色', colors: ['#00ff88', '#00ffaa', '#00ffcc', '#88ffcc'] },
+            { name: '蓝色', colors: ['#0088ff', '#00aaff', '#00ccff', '#88ddff'] },
+            { name: '紫色', colors: ['#8800ff', '#aa00ff', '#cc00ff', '#cc88ff'] },
+            { name: '红色', colors: ['#ff0088', '#ff00aa', '#ff00cc', '#ff88cc'] }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        // 绘制极光
+        function drawAurora() {
+            const mouseInfluence = mouseY / height;
+            
+            for (let w = 0; w < numWaves; w++) {
+                const colorScheme = colors[currentColor].colors;
+                const baseY = height * 0.3 + w * height * 0.1;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, height);
+                
+                // 绘制波浪曲线
+                for (let x = 0; x <= width; x += 5) {
+                    let y;
+                    
+                    if (currentMode === 0) {
+                        // 波浪模式
+                        y = baseY + 
+                            Math.sin((x * 0.01 + time * 0.02 * waveSpeed) + w * 0.5) * 50 +
+                            Math.sin((x * 0.02 + time * 0.01 * waveSpeed) + w * 0.3) * 30;
+                    } else {
+                        // 脉冲模式
+                        const pulse = Math.sin(time * 0.05 * waveSpeed + w * 0.5) * 0.5 + 0.5;
+                        y = baseY + 
+                            Math.sin((x * 0.005 + w * 0.8)) * 80 * pulse +
+                            Math.cos((x * 0.01 + time * 0.03 * waveSpeed)) * 40;
+                    }
+                    
+                    // 鼠标影响
+                    const distFromMouse = Math.abs(x - mouseX);
+                    const mouseEffect = Math.max(0, 1 - distFromMouse / 200) * 50 * mouseInfluence;
+                    y -= mouseEffect;
+                    
+                    ctx.lineTo(x, y);
+                }
+                
+                ctx.lineTo(width, height);
+                ctx.closePath();
+                
+                // 创建渐变
+                const gradient = ctx.createLinearGradient(0, baseY - 100, 0, height);
+                const colorIndex = w % colorScheme.length;
+                gradient.addColorStop(0, 'transparent');
+                gradient.addColorStop(0.3, colorScheme[colorIndex] + '40');
+                gradient.addColorStop(0.6, colorScheme[colorIndex] + '60');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 添加发光效果
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = colorScheme[colorIndex];
+                ctx.fill();
+            }
+        }
+
+        // 绘制星星
+        function drawStars() {
+            const numStars = 100;
+            ctx.fillStyle = '#ffffff';
+            
+            for (let i = 0; i < numStars; i++) {
+                const x = (i * 137.5) % width;
+                const y = (i * 73.3) % (height * 0.6);
+                const size = Math.random() * 1.5 + 0.5;
+                const twinkle = Math.sin(time * 0.05 + i) * 0.3 + 0.7;
+                
+                ctx.globalAlpha = twinkle * 0.8;
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.globalAlpha = 1;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 清空画布
+            ctx.fillStyle = 'rgba(0, 0, 17, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制星星
+            drawStars();
+
+            // 绘制极光
+            drawAurora();
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 触发脉冲
+            waveSpeed = 3.0;
+            setTimeout(() => {
+                waveSpeed = 1.0;
+            }, 500);
+        });
+
+        // 滚轮调整速度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            waveSpeed = Math.max(0.3, Math.min(3.0, waveSpeed - e.deltaY * 0.001));
+            speedDisplay.textContent = Math.round(waveSpeed * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('modeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentMode = (currentMode + 1) % 2;
+            const modes = ['波浪模式', '脉冲模式'];
+            e.target.textContent = modes[currentMode];
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColor = (currentColor + 1) % colors.length;
+            e.target.textContent = colors[currentColor].name;
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            // 触发脉冲
+            waveSpeed = 3.0;
+            setTimeout(() => {
+                waveSpeed = 1.0;
+            }, 500);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 触发强脉冲
+                waveSpeed = 3.0;
+                setTimeout(() => {
+                    waveSpeed = 1.0;
+                }, 500);
+            } else if (e.code === 'KeyM') {
+                // 切换模式
+                currentMode = (currentMode + 1) % 2;
+                const modes = ['波浪模式', '脉冲模式'];
+                document.getElementById('modeBtn').textContent = modes[currentMode];
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
