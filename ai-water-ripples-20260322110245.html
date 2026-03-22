@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水波纹 | Water Ripples</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #1a3a52 0%, #0d2137 50%, #0a1929 100%);
+            font-family: 'Georgia', serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .title {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(100, 200, 255, 0.8),
+                0 0 40px rgba(80, 180, 255, 0.6),
+                0 0 60px rgba(60, 160, 255, 0.4);
+            letter-spacing: 0.3em;
+            margin-bottom: 20px;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(-50%, -50%); }
+            50% { transform: translate(-50%, -52%); }
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1.2rem);
+            color: rgba(100, 200, 255, 0.6);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(100, 200, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 20, 40, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 20, 40, 0.6);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            color: rgba(100, 200, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(100, 200, 255, 0.2);
+            border-color: rgba(100, 200, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(100, 200, 255, 0.3);
+            border-color: rgba(100, 200, 255, 0.8);
+        }
+
+        .reflection {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 30%;
+            background: linear-gradient(to top,
+                rgba(10, 30, 50, 0.5) 0%,
+                transparent 100%);
+            pointer-events: none;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="reflection"></div>
+    
+    <div class="controls">
+        <button class="control-btn" id="rainBtn">雨滴模式</button>
+        <button class="control-btn" id="clearBtn">清除波纹</button>
+    </div>
+    
+    <div class="title">
+        <h1>水波纹</h1>
+        <div class="subtitle">平静水面的涟漪</div>
+    </div>
+    
+    <div class="instructions">
+        点击创建波纹 · 拖动绘制波纹轨迹 · 滚轮调整波纹大小
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>波纹数: <span id="ripples">0</span></div>
+        <div>波纹大小: <span id="size">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const ripplesCounter = document.getElementById('ripples');
+        const sizeDisplay = document.getElementById('size');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let rippleSizeMultiplier = 1.0;
+        let isRainMode = false;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 波纹系统
+        const ripples = [];
+        const maxRipples = 100;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isMouseDown = false;
+        let lastRippleTime = 0;
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        // 波纹类
+        class Ripple {
+            constructor(x, y, maxRadius = 150) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = maxRadius * rippleSizeMultiplier;
+                this.speed = 2 + Math.random() * 2;
+                this.alpha = 1;
+                this.lineWidth = 2 + Math.random() * 2;
+                this.waveCount = 3 + Math.floor(Math.random() * 3);
+                this.phase = Math.random() * Math.PI * 2;
+                this.hue = 200 + Math.random() * 40; // 蓝色系
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1 - (this.radius / this.maxRadius);
+                this.phase += 0.1;
+                return this.radius < this.maxRadius;
+            }
+
+            draw() {
+                if (this.alpha <= 0) return;
+
+                ctx.save();
+                
+                // 绘制多层波纹
+                for (let i = 0; i < this.waveCount; i++) {
+                    const waveRadius = this.radius - i * 15;
+                    if (waveRadius <= 0) continue;
+                    
+                    const waveAlpha = this.alpha * (1 - i / this.waveCount);
+                    const waveWidth = this.lineWidth * (1 - i / this.waveCount * 0.5);
+                    
+                    // 波浪效果
+                    ctx.beginPath();
+                    const segments = 60;
+                    for (let j = 0; j <= segments; j++) {
+                        const angle = (j / segments) * Math.PI * 2;
+                        const wave = Math.sin(angle * 8 + this.phase) * 3;
+                        const x = this.x + Math.cos(angle) * (waveRadius + wave);
+                        const y = this.y + Math.sin(angle) * (waveRadius + wave);
+                        
+                        if (j === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    ctx.closePath();
+                    
+                    // 渐变描边
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, waveRadius - 10,
+                        this.x, this.y, waveRadius + 10
+                    );
+                    gradient.addColorStop(0, 'transparent');
+                    gradient.addColorStop(0.5, `hsla(${this.hue}, 70%, 70%, ${waveAlpha})`);
+                    gradient.addColorStop(1, 'transparent');
+                    
+                    ctx.strokeStyle = `hsla(${this.hue}, 70%, 70%, ${waveAlpha})`;
+                    ctx.lineWidth = waveWidth;
+                    ctx.shadowBlur = 10 * waveAlpha;
+                    ctx.shadowColor = `hsla(${this.hue}, 70%, 70%, ${waveAlpha})`;
+                    ctx.stroke();
+                }
+                
+                // 中心高光
+                if (this.radius < 30) {
+                    const centerAlpha = this.alpha * (1 - this.radius / 30);
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsla(${this.hue}, 70%, 90%, ${centerAlpha})`;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = `hsla(${this.hue}, 70%, 90%, ${centerAlpha})`;
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            }
+
+            interact(otherRipple) {
+                const dx = otherRipple.x - this.x;
+                const dy = otherRipple.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 波纹交汇效果
+                if (distance < this.radius + otherRipple.radius && distance > Math.abs(this.radius - otherRipple.radius)) {
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // 创建波纹
+        function createRipple(x, y, maxRadius = 150) {
+            if (ripples.length >= maxRipples) {
+                ripples.shift();
+            }
+            ripples.push(new Ripple(x, y, maxRadius));
+            ripplesCounter.textContent = ripples.length;
+        }
+
+        // 雨滴模式
+        function autoRain() {
+            if (isRainMode && Math.random() < 0.05) {
+                createRipple(
+                    Math.random() * width,
+                    Math.random() * height,
+                    80 + Math.random() * 100
+                );
+            }
+        }
+
+        // 绘制水面反光
+        function drawWaterSurface() {
+            // 水面纹理
+            ctx.save();
+            ctx.globalAlpha = 0.03;
+            
+            for (let i = 0; i < 20; i++) {
+                const y = (Date.now() * 0.01 + i * 50) % height;
+                ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                
+                for (let x = 0; x < width; x += 20) {
+                    const wave = Math.sin(x * 0.01 + Date.now() * 0.002) * 2;
+                    ctx.lineTo(x, y + wave);
+                }
+                
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            // 半透明覆盖（创建拖尾效果）
+            ctx.fillStyle = 'rgba(10, 25, 45, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制水面
+            drawWaterSurface();
+
+            // 自动雨滴
+            autoRain();
+
+            // 拖动创建波纹
+            if (isMouseDown) {
+                const now = Date.now();
+                if (now - lastRippleTime > 50) {
+                    createRipple(mouseX, mouseY, 100);
+                    lastRippleTime = now;
+                }
+            }
+
+            // 更新和绘制波纹
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                const alive = ripples[i].update();
+                if (!alive) {
+                    ripples.splice(i, 1);
+                } else {
+                    ripples[i].draw();
+                }
+            }
+
+            // 波纹交汇效果（高亮点）
+            for (let i = 0; i < ripples.length; i++) {
+                for (let j = i + 1; j < ripples.length; j++) {
+                    if (ripples[i].interact(ripples[j])) {
+                        const midX = (ripples[i].x + ripples[j].x) / 2;
+                        const midY = (ripples[i].y + ripples[j].y) / 2;
+                        
+                        ctx.save();
+                        ctx.globalAlpha = 0.5;
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = 'rgba(100, 200, 255, 1)';
+                        ctx.beginPath();
+                        ctx.arc(midX, midY, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                }
+            }
+
+            ripplesCounter.textContent = ripples.length;
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            createRipple(e.clientX, e.clientY, 150);
+            lastRippleTime = Date.now();
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isMouseDown = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            createRipple(e.clientX, e.clientY, 150);
+        });
+
+        // 滚轮调整波纹大小
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            rippleSizeMultiplier = Math.max(0.5, Math.min(2.0, rippleSizeMultiplier - e.deltaY * 0.001));
+            sizeDisplay.textContent = Math.round(rippleSizeMultiplier * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('rainBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            isRainMode = !isRainMode;
+            e.target.textContent = isRainMode ? '停止雨滴' : '雨滴模式';
+            e.target.classList.toggle('active', isRainMode);
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            ripples.length = 0;
+            ripplesCounter.textContent = 0;
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            isMouseDown = true;
+            createRipple(mouseX, mouseY, 150);
+            lastRippleTime = Date.now();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 空格键：创建多个随机波纹
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        createRipple(
+                            Math.random() * width,
+                            Math.random() * height,
+                            100 + Math.random() * 100
+                        );
+                    }, i * 100);
+                }
+            } else if (e.code === 'KeyR') {
+                // R键：切换雨滴模式
+                isRainMode = !isRainMode;
+                document.getElementById('rainBtn').textContent = isRainMode ? '停止雨滴' : '雨滴模式';
+                document.getElementById('rainBtn').classList.toggle('active', isRainMode);
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+
+        // 初始波纹效果
+        setTimeout(() => {
+            createRipple(centerX, centerY, 200);
+        }, 500);
+    </script>
+</body>
+</html>
