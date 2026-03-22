@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市天际线 | City Skyline</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(255, 200, 100, 0.8),
+                0 0 40px rgba(255, 150, 50, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(255, 200, 150, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 200, 150, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 150, 50, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 150, 50, 0.3);
+            color: rgba(255, 200, 150, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 150, 50, 0.2);
+            border-color: rgba(255, 150, 50, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(255, 150, 50, 0.3);
+            border-color: rgba(255, 150, 50, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="timeBtn">切换时间</button>
+        <button class="control-btn" id="trafficBtn">切换车流</button>
+    </div>
+    
+    <div class="title">
+        <h1>城市天际线</h1>
+        <div class="subtitle">霓虹闪烁的夜晚</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标查看动态灯光 · 点击切换建筑灯光 · 滚轮调整视角高度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>建筑数: <span id="buildings">0</span></div>
+        <div>时间: <span id="time">夜晚</span></div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const buildingsCounter = document.getElementById('buildings');
+        const timeDisplay = document.getElementById('time');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let viewHeight = 1.0;
+        let currentTimeOfDay = 0; // 0=夜晚, 1=黄昏, 2=白天
+        let showTraffic = true;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 城市系统
+        const buildings = [];
+        const cars = [];
+        const stars = [];
+        let mouseX = 0;
+        let time = 0;
+
+        // 时间段颜色方案
+        const timeSchemes = [
+            { // 夜晚
+                name: '夜晚',
+                sky: ['#0a0a20', '#1a1a40', '#0a0a20'],
+                building: '#1a1a2a',
+                window: ['#ffff88', '#88ffff', '#ff88ff', '#ffffff'],
+                ground: '#0a0a15'
+            },
+            { // 黄昏
+                name: '黄昏',
+                sky: ['#ff6b35', '#f7931e', '#1a1a40'],
+                building: '#2a2a3a',
+                window: ['#ffff00', '#ff8800', '#ffffff'],
+                ground: '#1a1a25'
+            },
+            { // 白天
+                name: '白天',
+                sky: ['#87ceeb', '#b0e0e6', '#f0f8ff'],
+                building: '#4a4a5a',
+                window: ['#ffffff', '#aaddff', '#ffffff'],
+                ground: '#3a3a45'
+            }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initCity();
+        }
+
+        // 建筑类
+        class Building {
+            constructor(x, baseWidth) {
+                this.x = x;
+                this.baseWidth = baseWidth;
+                this.width = baseWidth + Math.random() * 40;
+                this.height = 100 + Math.random() * 400;
+                this.windows = [];
+                this.lights = [];
+                
+                // 生成窗户
+                const windowRows = Math.floor(this.height / 25);
+                const windowCols = Math.floor(this.width / 20);
+                
+                for (let row = 0; row < windowRows; row++) {
+                    for (let col = 0; col < windowCols; col++) {
+                        if (Math.random() > 0.3) {
+                            this.windows.push({
+                                x: col * 20 + 5,
+                                y: row * 25 + 10,
+                                lit: Math.random() > 0.4,
+                                color: Math.floor(Math.random() * 4),
+                                flicker: Math.random() < 0.1
+                            });
+                        }
+                    }
+                }
+                
+                // 生成楼顶灯光
+                if (Math.random() > 0.5) {
+                    this.lights.push({
+                        x: this.width / 2,
+                        y: -10,
+                        color: Math.random() > 0.5 ? '#ff0000' : '#00ff00',
+                        blink: Math.random() < 0.3
+                    });
+                }
+            }
+
+            toggleLights() {
+                this.windows.forEach(window => {
+                    if (Math.random() > 0.5) {
+                        window.lit = !window.lit;
+                    }
+                });
+            }
+
+            draw(baseY, scheme) {
+                const buildingY = baseY - this.height * viewHeight;
+                
+                // 建筑主体
+                ctx.fillStyle = scheme.building;
+                ctx.fillRect(this.x, buildingY, this.width, this.height * viewHeight);
+                
+                // 建筑边缘
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(this.x, buildingY, this.width, this.height * viewHeight);
+                
+                // 窗户
+                this.windows.forEach(window => {
+                    if (!window.lit) return;
+                    
+                    const windowY = buildingY + window.y * viewHeight;
+                    const windowX = this.x + window.x;
+                    
+                    let alpha = 0.8;
+                    if (window.flicker && Math.random() < 0.05) {
+                        alpha = Math.random() * 0.5 + 0.3;
+                    }
+                    
+                    ctx.fillStyle = scheme.window[window.color];
+                    ctx.globalAlpha = alpha;
+                    ctx.fillRect(windowX, windowY, 12, 15);
+                    
+                    // 窗户发光
+                    if (currentTimeOfDay === 0) {
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = scheme.window[window.color];
+                        ctx.fillRect(windowX, windowY, 12, 15);
+                        ctx.shadowBlur = 0;
+                    }
+                    
+                    ctx.globalAlpha = 1;
+                });
+                
+                // 楼顶灯光
+                this.lights.forEach(light => {
+                    const lightY = buildingY + light.y;
+                    const lightX = this.x + light.x;
+                    
+                    let alpha = 1;
+                    if (light.blink) {
+                        alpha = Math.sin(time * 0.1) > 0 ? 1 : 0.2;
+                    }
+                    
+                    ctx.fillStyle = light.color;
+                    ctx.globalAlpha = alpha;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = light.color;
+                    ctx.beginPath();
+                    ctx.arc(lightX, lightY, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                });
+            }
+        }
+
+        // 汽车类
+        class Car {
+            constructor() {
+                this.x = Math.random() * width;
+                this.speed = 2 + Math.random() * 3;
+                this.direction = Math.random() > 0.5 ? 1 : -1;
+                this.y = height - 60;
+                this.color = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff'][Math.floor(Math.random() * 5)];
+                this.tailLights = [];
+            }
+
+            update() {
+                this.x += this.speed * this.direction;
+                
+                // 保存尾灯轨迹
+                if (currentTimeOfDay === 0) {
+                    this.tailLights.push({ x: this.x, y: this.y, alpha: 1 });
+                    if (this.tailLights.length > 20) {
+                        this.tailLights.shift();
+                    }
+                    this.tailLights.forEach(light => light.alpha *= 0.9);
+                }
+                
+                if (this.x < -50 || this.x > width + 50) {
+                    this.x = this.direction > 0 ? -50 : width + 50;
+                }
+            }
+
+            draw() {
+                // 尾灯轨迹（仅夜晚）
+                if (currentTimeOfDay === 0 && this.direction !== 0) {
+                    this.tailLights.forEach(light => {
+                        ctx.fillStyle = this.direction > 0 ? 
+                            `rgba(255, 50, 50, ${light.alpha * 0.5})` :
+                            `rgba(255, 255, 255, ${light.alpha * 0.5})`;
+                        ctx.beginPath();
+                        ctx.arc(light.x, light.y + 3, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                }
+                
+                // 车身
+                ctx.fillStyle = '#2a2a3a';
+                ctx.fillRect(this.x - 10, this.y - 5, 20, 10);
+                
+                // 车灯
+                ctx.fillStyle = this.direction > 0 ? '#ffffff' : '#ff0000';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.beginPath();
+                ctx.arc(this.x + this.direction * 8, this.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // 星星类
+        class Star {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height * 0.6;
+                this.size = Math.random() * 2;
+                this.twinkle = Math.random() * Math.PI * 2;
+            }
+
+            draw() {
+                if (currentTimeOfDay !== 0) return;
+                
+                this.twinkle += 0.05;
+                const alpha = (Math.sin(this.twinkle) + 1) / 2 * 0.8 + 0.2;
+                
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 初始化城市
+        function initCity() {
+            buildings.length = 0;
+            cars.length = 0;
+            stars.length = 0;
+            
+            // 生成建筑
+            let x = 0;
+            while (x < width + 100) {
+                const baseWidth = 40 + Math.random() * 60;
+                buildings.push(new Building(x, baseWidth));
+                x += baseWidth + Math.random() * 20;
+            }
+            
+            // 生成汽车
+            for (let i = 0; i < 10; i++) {
+                cars.push(new Car());
+            }
+            
+            // 生成星星
+            for (let i = 0; i < 100; i++) {
+                stars.push(new Star());
+            }
+            
+            buildingsCounter.textContent = buildings.length;
+        }
+
+        // 绘制天空
+        function drawSky(scheme) {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, scheme.sky[0]);
+            gradient.addColorStop(0.5, scheme.sky[1]);
+            gradient.addColorStop(1, scheme.sky[2]);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // 绘制地面
+        function drawGround(scheme) {
+            const groundY = height - 80;
+            
+            // 地面
+            ctx.fillStyle = scheme.ground;
+            ctx.fillRect(0, groundY, width, 80);
+            
+            // 道路
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, groundY + 40, width, 40);
+            
+            // 道路标线
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([20, 20]);
+            ctx.beginPath();
+            ctx.moveTo(0, groundY + 60);
+            ctx.lineTo(width, groundY + 60);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            const scheme = timeSchemes[currentTimeOfDay];
+            
+            // 绘制天空
+            drawSky(scheme);
+            
+            // 绘制星星
+            stars.forEach(star => star.draw());
+            
+            // 绘制地面
+            drawGround(scheme);
+            
+            // 绘制建筑
+            const baseY = height - 80;
+            buildings.forEach(building => building.draw(baseY, scheme));
+            
+            // 绘制汽车
+            if (showTraffic) {
+                cars.forEach(car => {
+                    car.update();
+                    car.draw();
+                });
+            }
+            
+            // 鼠标悬停效果
+            const hoveredBuilding = buildings.find(b => 
+                mouseX >= b.x && mouseX <= b.x + b.width
+            );
+            
+            if (hoveredBuilding) {
+                ctx.strokeStyle = 'rgba(255, 200, 100, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(
+                    hoveredBuilding.x,
+                    baseY - hoveredBuilding.height * viewHeight,
+                    hoveredBuilding.width,
+                    hoveredBuilding.height * viewHeight
+                );
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const clickedBuilding = buildings.find(b => 
+                e.clientX >= b.x && e.clientX <= b.x + b.width
+            );
+            
+            if (clickedBuilding) {
+                clickedBuilding.toggleLights();
+            }
+        });
+
+        // 滚轮调整视角高度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            viewHeight = Math.max(0.5, Math.min(1.5, viewHeight + e.deltaY * 0.001));
+        });
+
+        // 按钮控制
+        document.getElementById('timeBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentTimeOfDay = (currentTimeOfDay + 1) % 3;
+            timeDisplay.textContent = timeSchemes[currentTimeOfDay].name;
+        });
+
+        document.getElementById('trafficBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            showTraffic = !showTraffic;
+            e.target.textContent = showTraffic ? '隐藏车流' : '显示车流';
+            e.target.classList.toggle('active', showTraffic);
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            
+            const touchedBuilding = buildings.find(b => 
+                touch.clientX >= b.x && touch.clientX <= b.x + b.width
+            );
+            
+            if (touchedBuilding) {
+                touchedBuilding.toggleLights();
+            }
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 空格键：随机切换所有建筑灯光
+                buildings.forEach(building => {
+                    if (Math.random() > 0.7) {
+                        building.toggleLights();
+                    }
+                });
+            } else if (e.code === 'KeyT') {
+                // T键：切换时间
+                currentTimeOfDay = (currentTimeOfDay + 1) % 3;
+                timeDisplay.textContent = timeSchemes[currentTimeOfDay].name;
+            }
+        });
+
+        // 初始化
+        resize();
+        timeDisplay.textContent = timeSchemes[currentTimeOfDay].name;
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
