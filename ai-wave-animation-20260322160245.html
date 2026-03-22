@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波浪动画 | Wave Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(180deg, 
+                #87ceeb 0%, 
+                #4a90c2 50%, 
+                #1e3a5f 100%);
+            font-family: 'Georgia', serif;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .title {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .title h1 {
+            font-size: clamp(2rem, 6vw, 4rem);
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 
+                0 0 20px rgba(0, 150, 255, 0.8),
+                0 0 40px rgba(0, 100, 200, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            color: rgba(200, 230, 255, 0.7);
+            letter-spacing: 0.2em;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(200, 230, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 50, 100, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 180, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 50, 100, 0.6);
+            border: 1px solid rgba(100, 180, 255, 0.3);
+            color: rgba(200, 230, 255, 0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(100, 180, 255, 0.2);
+            border-color: rgba(100, 180, 255, 0.6);
+        }
+
+        .control-btn.active {
+            background: rgba(100, 180, 255, 0.3);
+            border-color: rgba(100, 180, 255, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="controls">
+        <button class="control-btn" id="waveBtn">切换波形</button>
+        <button class="control-btn" id="colorBtn">切换配色</button>
+    </div>
+    
+    <div class="title">
+        <h1>波浪</h1>
+        <div class="subtitle">海洋的律动</div>
+    </div>
+    
+    <div class="instructions">
+        移动鼠标产生涟漪 · 点击创建波浪爆发 · 滚轮调整波浪高度
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>波浪层: <span id="layers">5</span></div>
+        <div>高度: <span id="amplitude">100</span>%</div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const layersDisplay = document.getElementById('layers');
+        const amplitudeDisplay = document.getElementById('amplitude');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let amplitudeMultiplier = 1.0;
+        let currentWaveType = 0;
+        let currentColorScheme = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        // 波浪系统
+        const waves = [];
+        const ripples = [];
+        const numLayers = 5;
+        let mouseX = 0;
+        let mouseY = 0;
+        let time = 0;
+
+        // 波形类型
+        const waveTypes = ['正弦波', '三角波', '锯齿波', '混合波'];
+
+        // 颜色方案
+        const colorSchemes = [
+            { // 海洋蓝
+                name: '海洋蓝',
+                colors: ['#1e3a5f', '#2e5a8f', '#3e7abf', '#4e9adf', '#5ebaff']
+            },
+            { // 日落橙
+                name: '日落橙',
+                colors: ['#8b4513', '#cd853f', '#daa520', '#f4a460', '#ffdab9']
+            },
+            { // 极光绿
+                name: '极光绿',
+                colors: ['#0d4f4f', '#1a6b6b', '#278787', '#34a3a3', '#41bfbf']
+            },
+            { // 梦幻紫
+                name: '梦幻紫',
+                colors: ['#4a1a6b', '#6b2d91', '#8b3fb5', '#ab51d9', '#cb63fd']
+            }
+        ];
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initWaves();
+        }
+
+        // 波浪函数
+        function getWaveY(x, waveType, frequency, amplitude, phase) {
+            const t = (x * frequency + phase) % (Math.PI * 2);
+            
+            switch (waveType) {
+                case 0: // 正弦波
+                    return Math.sin(t) * amplitude;
+                    
+                case 1: // 三角波
+                    return (2 / Math.PI) * Math.asin(Math.sin(t)) * amplitude;
+                    
+                case 2: // 锯齿波
+                    const period = Math.PI * 2;
+                    const normalized = ((t % period) + period) % period;
+                    return ((normalized / period) * 2 - 1) * amplitude;
+                    
+                case 3: // 混合波
+                    return (
+                        Math.sin(t) * 0.5 +
+                        Math.sin(t * 2) * 0.3 +
+                        Math.sin(t * 3) * 0.2
+                    ) * amplitude;
+                    
+                default:
+                    return Math.sin(t) * amplitude;
+            }
+        }
+
+        // 波浪层类
+        class WaveLayer {
+            constructor(index, totalLayers) {
+                this.index = index;
+                this.baseY = height * 0.4 + (index / totalLayers) * height * 0.5;
+                this.amplitude = (20 + index * 10) * amplitudeMultiplier;
+                this.frequency = 0.005 - index * 0.0005;
+                this.speed = 0.02 + index * 0.005;
+                this.phase = index * 0.5;
+                this.color = colorSchemes[currentColorScheme].colors[index];
+            }
+
+            update() {
+                this.phase += this.speed;
+                this.amplitude = (20 + this.index * 10) * amplitudeMultiplier;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.moveTo(0, height);
+                
+                // 绘制波浪曲线
+                for (let x = 0; x <= width; x += 5) {
+                    const y = this.baseY + getWaveY(
+                        x,
+                        currentWaveType,
+                        this.frequency,
+                        this.amplitude,
+                        this.phase
+                    );
+                    
+                    if (x === 0) {
+                        ctx.lineTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.lineTo(width, height);
+                ctx.closePath();
+                
+                // 渐变填充
+                const gradient = ctx.createLinearGradient(0, this.baseY - 50, 0, height);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'rgba(0, 20, 40, 0.8)');
+                
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 波浪高光
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        // 涟漪类
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 150;
+                this.speed = 3;
+                this.alpha = 1;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1 - (this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.alpha * 0.5})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // 波浪爆发类
+        class WaveBurst {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.waves = [];
+                
+                for (let i = 0; i < 5; i++) {
+                    this.waves.push({
+                        radius: i * 20,
+                        alpha: 1,
+                        speed: 2 + i
+                    });
+                }
+            }
+
+            update() {
+                let alive = false;
+                
+                this.waves.forEach(wave => {
+                    wave.radius += wave.speed;
+                    wave.alpha *= 0.95;
+                    
+                    if (wave.alpha > 0.01) {
+                        alive = true;
+                    }
+                });
+                
+                return alive;
+            }
+
+            draw() {
+                this.waves.forEach(wave => {
+                    if (wave.alpha <= 0.01) return;
+                    
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${wave.alpha * 0.8})`;
+                    ctx.lineWidth = 3;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, wave.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                });
+            }
+        }
+
+        const bursts = [];
+
+        // 初始化波浪
+        function initWaves() {
+            waves.length = 0;
+            
+            for (let i = 0; i < numLayers; i++) {
+                waves.push(new WaveLayer(i, numLayers));
+            }
+            
+            layersDisplay.textContent = waves.length;
+        }
+
+        // 创建涟漪
+        function createRipple(x, y) {
+            ripples.push(new Ripple(x, y));
+        }
+
+        // 创建波浪爆发
+        function createBurst(x, y) {
+            bursts.push(new WaveBurst(x, y));
+        }
+
+        // 绘制太阳/月亮
+        function drawCelestialBody() {
+            const x = width * 0.8;
+            const y = height * 0.15;
+            const radius = 40;
+            
+            // 光晕
+            const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, radius * 3);
+            glowGradient.addColorStop(0, 'rgba(255, 200, 100, 0.3)');
+            glowGradient.addColorStop(0.5, 'rgba(255, 200, 100, 0.1)');
+            glowGradient.addColorStop(1, 'transparent');
+            
+            ctx.fillStyle = glowGradient;
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 主体
+            const gradient = ctx.createRadialGradient(x - 10, y - 10, 0, x, y, radius);
+            gradient.addColorStop(0, '#fff5e0');
+            gradient.addColorStop(0.5, '#ffd700');
+            gradient.addColorStop(1, '#ff8c00');
+            
+            ctx.fillStyle = gradient;
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = 'rgba(255, 200, 100, 0.8)';
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            time++;
+
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+
+            // 绘制太阳
+            drawCelestialBody();
+
+            // 更新和绘制波浪
+            waves.forEach(wave => {
+                wave.update();
+                wave.draw();
+            });
+
+            // 鼠标悬停涟漪效果
+            if (mouseY > height * 0.4 && Math.random() < 0.1) {
+                createRipple(mouseX, mouseY);
+            }
+
+            // 更新和绘制涟漪
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                const alive = ripples[i].update();
+                if (!alive) {
+                    ripples.splice(i, 1);
+                } else {
+                    ripples[i].draw();
+                }
+            }
+
+            // 更新和绘制爆发
+            for (let i = bursts.length - 1; i >= 0; i--) {
+                const alive = bursts[i].update();
+                if (!alive) {
+                    bursts.splice(i, 1);
+                } else {
+                    bursts[i].draw();
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            createBurst(e.clientX, e.clientY);
+        });
+
+        // 滚轮调整波浪高度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            amplitudeMultiplier = Math.max(0.3, Math.min(2.0, amplitudeMultiplier - e.deltaY * 0.001));
+            amplitudeDisplay.textContent = Math.round(amplitudeMultiplier * 100);
+        });
+
+        // 按钮控制
+        document.getElementById('waveBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentWaveType = (currentWaveType + 1) % waveTypes.length;
+            e.target.textContent = waveTypes[currentWaveType];
+        });
+
+        document.getElementById('colorBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentColorScheme = (currentColorScheme + 1) % colorSchemes.length;
+            e.target.textContent = colorSchemes[currentColorScheme].name;
+            
+            // 更新波浪颜色
+            waves.forEach((wave, index) => {
+                wave.color = colorSchemes[currentColorScheme].colors[index];
+            });
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            createBurst(mouseX, mouseY);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                // 空格键：创建多个波浪爆发
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        createBurst(
+                            Math.random() * width,
+                            height * 0.5 + Math.random() * height * 0.3
+                        );
+                    }, i * 200);
+                }
+            } else if (e.code === 'KeyW') {
+                // W键：切换波形
+                currentWaveType = (currentWaveType + 1) % waveTypes.length;
+                document.getElementById('waveBtn').textContent = waveTypes[currentWaveType];
+            }
+        });
+
+        // 初始化
+        resize();
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+
+        // 初始波浪爆发
+        setTimeout(() => {
+            createBurst(width / 2, height * 0.6);
+        }, 500);
+    </script>
+</body>
+</html>
