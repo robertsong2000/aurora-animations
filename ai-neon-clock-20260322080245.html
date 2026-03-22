@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹时钟 | Neon Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: 'Orbitron', 'Arial', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            cursor: pointer;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .digital-time {
+            font-size: clamp(3rem, 12vw, 8rem);
+            font-weight: 700;
+            margin-bottom: 20px;
+            letter-spacing: 0.1em;
+            animation: glow 2s ease-in-out infinite alternate;
+            transition: all 0.3s ease;
+        }
+
+        .digital-time.color-cyan {
+            color: #0ff;
+            text-shadow: 
+                0 0 10px #0ff,
+                0 0 20px #0ff,
+                0 0 40px #0ff,
+                0 0 80px #0ff;
+        }
+
+        .digital-time.color-magenta {
+            color: #f0f;
+            text-shadow: 
+                0 0 10px #f0f,
+                0 0 20px #f0f,
+                0 0 40px #f0f,
+                0 0 80px #f0f;
+        }
+
+        .digital-time.color-green {
+            color: #0f0;
+            text-shadow: 
+                0 0 10px #0f0,
+                0 0 20px #0f0,
+                0 0 40px #0f0,
+                0 0 80px #0f0;
+        }
+
+        .digital-time.color-orange {
+            color: #f80;
+            text-shadow: 
+                0 0 10px #f80,
+                0 0 20px #f80,
+                0 0 40px #f80,
+                0 0 80px #f80;
+        }
+
+        .digital-time.color-white {
+            color: #fff;
+            text-shadow: 
+                0 0 10px #fff,
+                0 0 20px #fff,
+                0 0 40px #fff,
+                0 0 80px #fff;
+        }
+
+        @keyframes glow {
+            from {
+                filter: brightness(1);
+            }
+            to {
+                filter: brightness(1.2);
+            }
+        }
+
+        .date {
+            font-size: clamp(1rem, 3vw, 1.5rem);
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 0.3em;
+            margin-bottom: 40px;
+        }
+
+        .mode-indicator {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        .stats div {
+            margin: 5px 0;
+        }
+
+        .color-indicator {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+        }
+
+        .color-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .color-dot.active {
+            transform: scale(1.3);
+            box-shadow: 0 0 10px currentColor;
+        }
+
+        .color-dot.cyan { background: #0ff; }
+        .color-dot.magenta { background: #f0f; }
+        .color-dot.green { background: #0f0; }
+        .color-dot.orange { background: #f80; }
+        .color-dot.white { background: #fff; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="color-indicator">
+        <div class="color-dot cyan active" data-color="0"></div>
+        <div class="color-dot magenta" data-color="1"></div>
+        <div class="color-dot green" data-color="2"></div>
+        <div class="color-dot orange" data-color="3"></div>
+        <div class="color-dot white" data-color="4"></div>
+    </div>
+    
+    <div class="container">
+        <div class="digital-time color-cyan" id="digitalTime">00:00:00</div>
+        <div class="date" id="date">2026年03月22日 星期日</div>
+    </div>
+    
+    <div class="mode-indicator">
+        点击切换颜色 · 滚轮调整霓虹强度 · 按空格切换模拟时钟/数字时钟
+    </div>
+    
+    <div class="stats">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>强度: <span id="intensity">100</span>%</div>
+        <div>模式: <span id="mode">模拟</span></div>
+    </div>
+
+    <script>
+        // 性能监控
+        const fpsCounter = document.getElementById('fps');
+        const intensityDisplay = document.getElementById('intensity');
+        const modeDisplay = document.getElementById('mode');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let intensity = 1.0;
+        let showAnalog = true;
+
+        // 颜色主题
+        const colorThemes = [
+            { name: 'cyan', color: '#0ff', rgb: '0, 255, 255' },
+            { name: 'magenta', color: '#f0f', rgb: '240, 0, 240' },
+            { name: 'green', color: '#0f0', rgb: '0, 255, 0' },
+            { name: 'orange', color: '#f80', rgb: '255, 136, 0' },
+            { name: 'white', color: '#fff', rgb: '255, 255, 255' }
+        ];
+        let currentColorIndex = 0;
+
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let centerX, centerY, clockRadius;
+
+        // 粒子系统
+        const particles = [];
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            clockRadius = Math.min(width, height) * 0.35;
+        }
+
+        // 粒子类
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = Math.random() * 2 + 1;
+                this.speedX = (Math.random() - 0.5) * 2;
+                this.speedY = (Math.random() - 0.5) * 2;
+                this.alpha = 1;
+                this.decay = 0.02;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.alpha -= this.decay;
+                return this.alpha > 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha * intensity;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10 * intensity;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 创建粒子爆发
+        function createParticleBurst(x, y, count = 20) {
+            const theme = colorThemes[currentColorIndex];
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(x, y, theme.color));
+            }
+        }
+
+        // 绘制霓虹圆环
+        function drawNeonRing(x, y, radius, color, lineWidth = 2) {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.shadowBlur = 20 * intensity;
+            ctx.shadowColor = color;
+            ctx.globalAlpha = intensity;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 绘制时钟刻度
+        function drawClockMarks() {
+            const theme = colorThemes[currentColorIndex];
+            
+            for (let i = 0; i < 60; i++) {
+                const angle = (i * 6 - 90) * Math.PI / 180;
+                const isHour = i % 5 === 0;
+                const innerRadius = clockRadius * (isHour ? 0.85 : 0.92);
+                const outerRadius = clockRadius * 0.95;
+                
+                const x1 = centerX + Math.cos(angle) * innerRadius;
+                const y1 = centerY + Math.sin(angle) * innerRadius;
+                const x2 = centerX + Math.cos(angle) * outerRadius;
+                const y2 = centerY + Math.sin(angle) * outerRadius;
+                
+                ctx.save();
+                ctx.strokeStyle = theme.color;
+                ctx.lineWidth = isHour ? 3 : 1;
+                ctx.shadowBlur = (isHour ? 15 : 5) * intensity;
+                ctx.shadowColor = theme.color;
+                ctx.globalAlpha = (isHour ? 1 : 0.5) * intensity;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // 绘制时钟数字
+        function drawClockNumbers() {
+            const theme = colorThemes[currentColorIndex];
+            ctx.save();
+            ctx.fillStyle = theme.color;
+            ctx.font = `bold ${clockRadius * 0.15}px Orbitron, Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowBlur = 15 * intensity;
+            ctx.shadowColor = theme.color;
+            ctx.globalAlpha = intensity;
+            
+            for (let i = 1; i <= 12; i++) {
+                const angle = (i * 30 - 90) * Math.PI / 180;
+                const x = centerX + Math.cos(angle) * clockRadius * 0.72;
+                const y = centerY + Math.sin(angle) * clockRadius * 0.72;
+                ctx.fillText(i.toString(), x, y);
+            }
+            ctx.restore();
+        }
+
+        // 绘制时钟指针
+        function drawHand(angle, length, width, color) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(angle);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.shadowBlur = 20 * intensity;
+            ctx.shadowColor = color;
+            ctx.globalAlpha = intensity;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -length);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 绘制模拟时钟
+        function drawAnalogClock() {
+            const now = new Date();
+            const hours = now.getHours() % 12;
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            const milliseconds = now.getMilliseconds();
+            
+            const theme = colorThemes[currentColorIndex];
+            
+            // 外圈
+            drawNeonRing(centerX, centerY, clockRadius, theme.color, 3);
+            drawNeonRing(centerX, centerY, clockRadius * 1.02, theme.color, 1);
+            
+            // 刻度
+            drawClockMarks();
+            
+            // 数字
+            drawClockNumbers();
+            
+            // 计算角度
+            const secondAngle = ((seconds + milliseconds / 1000) * 6 - 90) * Math.PI / 180;
+            const minuteAngle = ((minutes + seconds / 60) * 6 - 90) * Math.PI / 180;
+            const hourAngle = ((hours + minutes / 60) * 30 - 90) * Math.PI / 180;
+            
+            // 时针
+            drawHand(hourAngle, clockRadius * 0.5, 6, theme.color);
+            
+            // 分针
+            drawHand(minuteAngle, clockRadius * 0.7, 4, theme.color);
+            
+            // 秒针
+            drawHand(secondAngle, clockRadius * 0.8, 2, '#ff0040');
+            
+            // 中心点
+            ctx.save();
+            ctx.fillStyle = theme.color;
+            ctx.shadowBlur = 20 * intensity;
+            ctx.shadowColor = theme.color;
+            ctx.globalAlpha = intensity;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 更新数字时钟
+        function updateDigitalClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            
+            const digitalTime = document.getElementById('digitalTime');
+            digitalTime.textContent = `${hours}:${minutes}:${seconds}`;
+            
+            // 更新日期
+            const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const dayOfWeek = days[now.getDay()];
+            
+            document.getElementById('date').textContent = `${year}年${month}月${day}日 ${dayOfWeek}`;
+        }
+
+        // 更新颜色主题
+        function updateColorTheme(index) {
+            currentColorIndex = index;
+            const theme = colorThemes[index];
+            const digitalTime = document.getElementById('digitalTime');
+            
+            // 移除所有颜色类
+            digitalTime.className = 'digital-time';
+            digitalTime.classList.add(`color-${theme.name}`);
+            
+            // 更新指示器
+            document.querySelectorAll('.color-dot').forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+        }
+
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                fpsCounter.textContent = fps;
+            }
+
+            // 清空画布
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制模拟时钟
+            if (showAnalog) {
+                drawAnalogClock();
+            }
+
+            // 更新数字时钟
+            updateDigitalClock();
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const alive = particles[i].update();
+                if (!alive) {
+                    particles.splice(i, 1);
+                } else {
+                    particles[i].draw();
+                }
+            }
+
+            // 鼠标悬停效果
+            const dist = Math.sqrt((mouseX - centerX) ** 2 + (mouseY - centerY) ** 2);
+            if (dist < clockRadius * 1.2) {
+                const theme = colorThemes[currentColorIndex];
+                ctx.save();
+                ctx.strokeStyle = theme.color;
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.3 * intensity;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, dist, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 事件监听
+        window.addEventListener('resize', resize);
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // 切换颜色
+            currentColorIndex = (currentColorIndex + 1) % colorThemes.length;
+            updateColorTheme(currentColorIndex);
+            
+            // 创建粒子爆发
+            createParticleBurst(e.clientX, e.clientY, 30);
+        });
+
+        // 滚轮调整强度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            intensity = Math.max(0.2, Math.min(2.0, intensity - e.deltaY * 0.001));
+            intensityDisplay.textContent = Math.round(intensity * 100);
+        });
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                showAnalog = !showAnalog;
+                modeDisplay.textContent = showAnalog ? '模拟' : '数字';
+                
+                // 创建粒子爆发
+                createParticleBurst(centerX, centerY, 50);
+            } else if (e.code === 'ArrowRight') {
+                currentColorIndex = (currentColorIndex + 1) % colorThemes.length;
+                updateColorTheme(currentColorIndex);
+            } else if (e.code === 'ArrowLeft') {
+                currentColorIndex = (currentColorIndex - 1 + colorThemes.length) % colorThemes.length;
+                updateColorTheme(currentColorIndex);
+            }
+        });
+
+        // 颜色指示器点击
+        document.querySelectorAll('.color-dot').forEach((dot, index) => {
+            dot.style.pointerEvents = 'auto';
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
+                updateColorTheme(index);
+                createParticleBurst(e.clientX, e.clientY, 20);
+            });
+        });
+
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            currentColorIndex = (currentColorIndex + 1) % colorThemes.length;
+            updateColorTheme(currentColorIndex);
+            createParticleBurst(touch.clientX, touch.clientY, 30);
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        // 初始化
+        resize();
+        updateColorTheme(0);
+        
+        // 开始动画
+        requestAnimationFrame(animate);
+
+        // 初始粒子效果
+        setTimeout(() => {
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    const angle = (i * 72) * Math.PI / 180;
+                    const x = centerX + Math.cos(angle) * clockRadius * 0.8;
+                    const y = centerY + Math.sin(angle) * clockRadius * 0.8;
+                    createParticleBurst(x, y, 15);
+                }, i * 100);
+            }
+        }, 500);
+    </script>
+</body>
+</html>
