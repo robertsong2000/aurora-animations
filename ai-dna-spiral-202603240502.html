@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNA螺旋 - DNA Helix Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 20px rgba(138, 43, 226, 0.8);
+            letter-spacing: 3px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 20px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">🧬 DNA 双螺旋</div>
+    <canvas id="dna"></canvas>
+    <div class="info">
+        <div>🖱️ 水平移动 - 控制旋转速度</div>
+        <div>👆 点击 - 添加碱基突变</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('dna');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let mouseX = 0, mouseY = 0;
+        let rotationSpeed = 0.02;
+        
+        // DNA 配置
+        const HELIX_POINTS = 60;
+        const HELIX_RADIUS = 100;
+        const HELIX_HEIGHT = 800;
+        const BASE_PAIR_DISTANCE = 15;
+        
+        // 颜色配置（ATCG碱基对）
+        const BASE_COLORS = {
+            A: '#ff6b6b', // 腺嘌呤 - 红色
+            T: '#4ecdc4', // 胸腺嘧啶 - 青色
+            G: '#ffe66d', // 鸟嘌呤 - 黄色
+            C: '#95e1d3', // 胞嘧啶 - 绿色
+        };
+        
+        const BACKBONE_COLORS = {
+            left: '#8b5cf6',  // 紫色
+            right: '#ec4899', // 粉色
+        };
+        
+        // DNA结构数据
+        let dnaStrand = [];
+        let mutations = [];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        // 生成随机碱基对
+        function generateBasePair() {
+            const bases = ['A', 'T', 'G', 'C'];
+            const base1 = bases[Math.floor(Math.random() * bases.length)];
+            // 碱基配对规则：A-T, G-C
+            const base2 = base1 === 'A' ? 'T' : 
+                         base1 === 'T' ? 'A' : 
+                         base1 === 'G' ? 'C' : 'G';
+            return { base1, base2 };
+        }
+        
+        // 初始化DNA链
+        function initDNA() {
+            dnaStrand = [];
+            for (let i = 0; i < HELIX_POINTS; i++) {
+                dnaStrand.push({
+                    ...generateBasePair(),
+                    offset: i * BASE_PAIR_DISTANCE - HELIX_HEIGHT / 2,
+                    rotation: (i / HELIX_POINTS) * Math.PI * 4,
+                    mutated: false,
+                    mutationTime: 0,
+                });
+            }
+        }
+        
+        // 添加突变
+        function addMutation() {
+            const index = Math.floor(Math.random() * dnaStrand.length);
+            dnaStrand[index].mutated = true;
+            dnaStrand[index].mutationTime = performance.now();
+            
+            // 改变碱基对
+            const newBases = generateBasePair();
+            dnaStrand[index].base1 = newBases.base1;
+            dnaStrand[index].base2 = newBases.base2;
+            
+            mutations.push({
+                index: index,
+                time: performance.now(),
+                duration: 2000,
+            });
+        }
+        
+        // 绘制碱基对连接线
+        function drawBasePair(x1, y1, x2, y2, base1, base2, mutated, alpha) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            
+            // 绘制氢键（虚线）
+            ctx.strokeStyle = mutated ? '#fff' : 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // 绘制碱基（圆形）
+            const baseSize = mutated ? 12 : 8;
+            
+            // 左侧碱基
+            ctx.fillStyle = BASE_COLORS[base1];
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = BASE_COLORS[base1];
+            ctx.beginPath();
+            ctx.arc(x1, y1, baseSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 右侧碱基
+            ctx.fillStyle = BASE_COLORS[base2];
+            ctx.shadowColor = BASE_COLORS[base2];
+            ctx.beginPath();
+            ctx.arc(x2, y2, baseSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 突变特效
+            if (mutated) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(x1, y1, baseSize + 5, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x2, y2, baseSize + 5, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+        
+        // 绘制主链
+        function drawBackbone(x, y, color, alpha) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        
+        // 3D投影（简单透视）
+        function project3D(x, y, z, rotationY) {
+            // 绕Y轴旋转
+            const cosR = Math.cos(rotationY);
+            const sinR = Math.sin(rotationY);
+            const rotatedX = x * cosR - z * sinR;
+            const rotatedZ = x * sinR + z * cosR;
+            
+            // 透视投影
+            const perspective = 800;
+            const scale = perspective / (perspective + rotatedZ);
+            
+            return {
+                x: centerX + rotatedX * scale,
+                y: y,
+                scale: scale,
+                z: rotatedZ,
+            };
+        }
+        
+        // 主动画循环
+        let globalRotation = 0;
+        
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            
+            // 清除画布（带渐隐效果）
+            ctx.fillStyle = 'rgba(10, 10, 20, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 根据鼠标位置调整旋转速度
+            const targetSpeed = ((mouseX - centerX) / width) * 0.1;
+            rotationSpeed += (targetSpeed - rotationSpeed) * 0.05;
+            
+            // 更新全局旋转
+            globalRotation += rotationSpeed;
+            
+            // 绘制所有碱基对（按Z轴排序）
+            const pointsToDraw = [];
+            
+            dnaStrand.forEach((point, index) => {
+                const y = centerY + point.offset;
+                const angle = point.rotation + globalRotation;
+                
+                // 计算两条主链的位置
+                const x1 = Math.cos(angle) * HELIX_RADIUS;
+                const z1 = Math.sin(angle) * HELIX_RADIUS;
+                
+                const x2 = Math.cos(angle + Math.PI) * HELIX_RADIUS;
+                const z2 = Math.sin(angle + Math.PI) * HELIX_RADIUS;
+                
+                // 3D投影
+                const proj1 = project3D(x1, y, z1, 0);
+                const proj2 = project3D(x2, y, z2, 0);
+                
+                // 检查突变状态
+                const mutationAge = currentTime - point.mutationTime;
+                const isMutated = point.mutated && mutationAge < 2000;
+                const alpha = isMutated ? 1 : 0.7 + (proj1.z / 800) * 0.3;
+                
+                pointsToDraw.push({
+                    type: 'basePair',
+                    x1: proj1.x,
+                    y1: proj1.y,
+                    x2: proj2.x,
+                    y2: proj2.y,
+                    z: (z1 + z2) / 2,
+                    base1: point.base1,
+                    base2: point.base2,
+                    mutated: isMutated,
+                    alpha: alpha,
+                    scale: (proj1.scale + proj2.scale) / 2,
+                });
+                
+                pointsToDraw.push({
+                    type: 'backbone',
+                    x: proj1.x,
+                    y: proj1.y,
+                    z: z1,
+                    color: BACKBONE_COLORS.left,
+                    alpha: alpha,
+                });
+                
+                pointsToDraw.push({
+                    type: 'backbone',
+                    x: proj2.x,
+                    y: proj2.y,
+                    z: z2,
+                    color: BACKBONE_COLORS.right,
+                    alpha: alpha,
+                });
+            });
+            
+            // 按Z轴排序（远的先画）
+            pointsToDraw.sort((a, b) => b.z - a.z);
+            
+            // 绘制所有元素
+            pointsToDraw.forEach(point => {
+                if (point.type === 'basePair') {
+                    drawBasePair(
+                        point.x1, point.y1,
+                        point.x2, point.y2,
+                        point.base1, point.base2,
+                        point.mutated, point.alpha
+                    );
+                } else if (point.type === 'backbone') {
+                    drawBackbone(point.x, point.y, point.color, point.alpha);
+                }
+            });
+            
+            // 更新突变状态
+            mutations = mutations.filter(m => currentTime - m.time < m.duration);
+            mutations.forEach(m => {
+                if (currentTime - m.time >= m.duration) {
+                    dnaStrand[m.index].mutated = false;
+                }
+            });
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', () => {
+            addMutation();
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            addMutation();
+        });
+        
+        // 初始化
+        resize();
+        initDNA();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
