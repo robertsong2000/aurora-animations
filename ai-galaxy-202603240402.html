@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>银河系 - Galaxy Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 150, 255, 0.8);
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 12px;
+                bottom: 10px;
+                left: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="galaxy"></canvas>
+    <div class="info">
+        <div>🌌 银河系动画</div>
+        <div>🖱️ 移动鼠标 - 控制引力场</div>
+        <div>👆 点击 - 超新星爆发</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('galaxy');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let mouseX = 0, mouseY = 0;
+        let isMouseDown = false;
+        
+        // 星星数组
+        let stars = [];
+        const STAR_COUNT = 3000;
+        
+        // 颜色配置
+        const COLORS = [
+            '#ffffff', // 白色
+            '#87ceeb', // 天蓝
+            '#ff6b6b', // 红色
+            '#ffd93d', // 黄色
+            '#6bcb77', // 绿色
+            '#4d96ff', // 蓝色
+            '#c9b1ff', // 紫色
+        ];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        // 创建星星
+        function createStar(isExplosion = false, x = centerX, y = centerY) {
+            const angle = Math.random() * Math.PI * 2;
+            const distance = isExplosion ? 0 : Math.random() * Math.min(width, height) * 0.6;
+            const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            
+            return {
+                x: isExplosion ? x : centerX + Math.cos(angle) * distance,
+                y: isExplosion ? y : centerY + Math.sin(angle) * distance,
+                vx: (Math.random() - 0.5) * (isExplosion ? 8 : 0.5),
+                vy: (Math.random() - 0.5) * (isExplosion ? 8 : 0.5),
+                size: Math.random() * 2 + 0.5,
+                color: color,
+                alpha: Math.random() * 0.5 + 0.5,
+                twinkleSpeed: Math.random() * 0.02 + 0.01,
+                twinklePhase: Math.random() * Math.PI * 2,
+                orbitAngle: angle,
+                orbitSpeed: (Math.random() - 0.5) * 0.001,
+                orbitRadius: distance,
+                isExplosion: isExplosion,
+                life: isExplosion ? 1 : Infinity,
+            };
+        }
+        
+        // 初始化星星
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < STAR_COUNT; i++) {
+                stars.push(createStar());
+            }
+        }
+        
+        // 超新星爆发
+        function supernova(x, y) {
+            const explosionCount = 100;
+            for (let i = 0; i < explosionCount; i++) {
+                if (stars.length < STAR_COUNT * 1.5) {
+                    stars.push(createStar(true, x, y));
+                }
+            }
+        }
+        
+        // 绘制单个星星
+        function drawStar(star) {
+            ctx.save();
+            ctx.globalAlpha = star.alpha;
+            ctx.fillStyle = star.color;
+            ctx.shadowBlur = star.size * 3;
+            ctx.shadowColor = star.color;
+            
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        
+        // 绘制银河旋臂
+        function drawGalaxyCore() {
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, 150
+            );
+            gradient.addColorStop(0, 'rgba(255, 220, 180, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(100, 150, 255, 0.1)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 150, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // 更新星星位置
+        function updateStar(star, deltaTime) {
+            const time = performance.now() * 0.001;
+            
+            // 闪烁效果
+            star.alpha = 0.5 + Math.sin(time * star.twinkleSpeed * 60 + star.twinklePhase) * 0.3;
+            
+            if (star.isExplosion) {
+                // 爆炸粒子逐渐消失
+                star.life -= deltaTime * 0.5;
+                star.alpha *= star.life;
+                star.vx *= 0.98;
+                star.vy *= 0.98;
+                star.x += star.vx;
+                star.y += star.vy;
+            } else {
+                // 银河旋转
+                star.orbitAngle += star.orbitSpeed;
+                const targetX = centerX + Math.cos(star.orbitAngle) * star.orbitRadius;
+                const targetY = centerY + Math.sin(star.orbitAngle) * star.orbitRadius;
+                
+                star.x += (targetX - star.x) * 0.01;
+                star.y += (targetY - star.y) * 0.01;
+                
+                // 鼠标引力场效果
+                const dx = mouseX - star.x;
+                const dy = mouseY - star.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 200 && dist > 0) {
+                    const force = (200 - dist) / 200 * 0.5;
+                    star.vx += (dx / dist) * force;
+                    star.vy += (dy / dist) * force;
+                }
+                
+                // 应用速度
+                star.x += star.vx;
+                star.y += star.vy;
+                
+                // 阻尼
+                star.vx *= 0.95;
+                star.vy *= 0.95;
+                
+                // 边界检查
+                if (star.x < 0) star.x = width;
+                if (star.x > width) star.x = 0;
+                if (star.y < 0) star.y = height;
+                if (star.y > height) star.y = 0;
+            }
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            
+            // 清除画布（带拖尾效果）
+            ctx.fillStyle = 'rgba(0, 0, 20, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制银河核心
+            drawGalaxyCore();
+            
+            // 更新和绘制所有星星
+            stars = stars.filter(star => {
+                if (star.isExplosion && star.life <= 0) {
+                    return false;
+                }
+                updateStar(star, deltaTime);
+                drawStar(star);
+                return true;
+            });
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            supernova(e.clientX, e.clientY);
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            supernova(e.touches[0].clientX, e.touches[0].clientY);
+        });
+        
+        // 初始化
+        resize();
+        initStars();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
