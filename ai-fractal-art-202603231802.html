@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分形艺术 | Fractal Art</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 
+                0 0 10px rgba(138, 43, 226, 0.8),
+                0 0 20px rgba(75, 0, 130, 0.6);
+            animation: glow 2s ease-in-out infinite;
+        }
+        
+        @keyframes glow {
+            0%, 100% { 
+                text-shadow: 
+                    0 0 10px rgba(138, 43, 226, 0.8),
+                    0 0 20px rgba(75, 0, 130, 0.6);
+            }
+            50% { 
+                text-shadow: 
+                    0 0 20px rgba(138, 43, 226, 1),
+                    0 0 40px rgba(75, 0, 130, 0.8),
+                    0 0 60px rgba(138, 43, 226, 0.4);
+            }
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(138, 43, 226, 0.3);
+            border: 1px solid rgba(138, 43, 226, 0.6);
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            letter-spacing: 1px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .control-btn:hover {
+            background: rgba(138, 43, 226, 0.5);
+            box-shadow: 0 0 20px rgba(138, 43, 226, 0.6);
+            transform: translateX(-5px);
+        }
+        
+        .control-btn.active {
+            background: rgba(138, 43, 226, 0.6);
+            box-shadow: 0 0 30px rgba(138, 43, 226, 0.8);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.6;
+            backdrop-filter: blur(5px);
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">FRACTAL</div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="treeBtn">分形树</button>
+        <button class="control-btn" id="sierpinskiBtn">谢尔宾斯基</button>
+        <button class="control-btn" id="kochBtn">科赫雪花</button>
+        <button class="control-btn" id="mandelbrotBtn">曼德博</button>
+    </div>
+    
+    <div class="stats" id="stats"></div>
+    <canvas id="fractal"></canvas>
+    <div class="info">点击放大 · 移动鼠标旋转 · 滚轮调整迭代次数</div>
+    
+    <script>
+        const canvas = document.getElementById('fractal');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        let centerX = width / 2;
+        let centerY = height / 2;
+        
+        // Fractal parameters
+        let mouseX = centerX;
+        let mouseY = centerY;
+        let mode = 'tree';
+        let iterations = 10;
+        let angle = 0;
+        let zoom = 1;
+        
+        // Color palettes
+        const palettes = {
+            tree: ['#00FF00', '#32CD32', '#228B22', '#006400', '#004d00'],
+            sierpinski: ['#FF6B6B', '#FF8E72', '#FFD93D', '#6BCF7F', '#4D96FF'],
+            koch: ['#00FFFF', '#00CED1', '#20B2AA', '#48D1CC', '#40E0D0'],
+            mandelbrot: ['#9400D3', '#4B0082', '#0000FF', '#00FF00', '#FFFF00', '#FF7F00', '#FF0000']
+        };
+        
+        // Draw fractal tree
+        function drawTree(x, y, length, angle, depth) {
+            if (depth === 0 || length < 2) return;
+            
+            const endX = x + Math.cos(angle) * length;
+            const endY = y + Math.sin(angle) * length;
+            
+            const color = palettes.tree[depth % palettes.tree.length];
+            ctx.strokeStyle = color;
+            ctx.lineWidth = depth * 0.5;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = color;
+            
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            const branchAngle = Math.PI / 6 + (mouseX - centerX) / width * 0.5;
+            
+            drawTree(endX, endY, length * 0.7, angle - branchAngle, depth - 1);
+            drawTree(endX, endY, length * 0.7, angle + branchAngle, depth - 1);
+            
+            ctx.shadowBlur = 0;
+        }
+        
+        // Draw Sierpinski triangle
+        function drawSierpinski(x1, y1, x2, y2, x3, y3, depth) {
+            if (depth === 0) {
+                const color = palettes.sierpinski[Math.floor(Math.random() * palettes.sierpinski.length)];
+                ctx.fillStyle = color;
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.lineTo(x3, y3);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                return;
+            }
+            
+            const mx1 = (x1 + x2) / 2;
+            const my1 = (y1 + y2) / 2;
+            const mx2 = (x2 + x3) / 2;
+            const my2 = (y2 + y3) / 2;
+            const mx3 = (x1 + x3) / 2;
+            const my3 = (y1 + y3) / 2;
+            
+            drawSierpinski(x1, y1, mx1, my1, mx3, my3, depth - 1);
+            drawSierpinski(mx1, my1, x2, y2, mx2, my2, depth - 1);
+            drawSierpinski(mx3, my3, mx2, my2, x3, y3, depth - 1);
+        }
+        
+        // Draw Koch snowflake
+        function drawKochLine(x1, y1, x2, y2, depth) {
+            if (depth === 0) {
+                const color = palettes.koch[Math.floor(Math.random() * palettes.koch.length)];
+                ctx.strokeStyle = color;
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                return;
+            }
+            
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            
+            const x3 = x1 + dx / 3;
+            const y3 = y1 + dy / 3;
+            
+            const x5 = x1 + 2 * dx / 3;
+            const y5 = y1 + 2 * dy / 3;
+            
+            const x4 = x3 + (dx / 3) * Math.cos(Math.PI / 3) - (dy / 3) * Math.sin(Math.PI / 3);
+            const y4 = y3 + (dx / 3) * Math.sin(Math.PI / 3) + (dy / 3) * Math.cos(Math.PI / 3);
+            
+            drawKochLine(x1, y1, x3, y3, depth - 1);
+            drawKochLine(x3, y3, x4, y4, depth - 1);
+            drawKochLine(x4, y4, x5, y5, depth - 1);
+            drawKochLine(x5, y5, x2, y2, depth - 1);
+        }
+        
+        function drawKochSnowflake(cx, cy, size, depth) {
+            const height = size * Math.sqrt(3) / 2;
+            
+            const x1 = cx;
+            const y1 = cy - height * 2 / 3;
+            const x2 = cx - size / 2;
+            const y2 = cy + height / 3;
+            const x3 = cx + size / 2;
+            const y3 = cy + height / 3;
+            
+            drawKochLine(x1, y1, x3, y3, depth);
+            drawKochLine(x3, y3, x2, y2, depth);
+            drawKochLine(x2, y2, x1, y1, depth);
+        }
+        
+        // Draw Mandelbrot set
+        function drawMandelbrot() {
+            const maxIter = 50 + iterations * 5;
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            const scale = 4 / (Math.min(width, height) * zoom);
+            const offsetX = (mouseX - centerX) * scale * 0.5;
+            const offsetY = (mouseY - centerY) * scale * 0.5;
+            
+            for (let px = 0; px < width; px++) {
+                for (let py = 0; py < height; py++) {
+                    const x0 = (px - centerX) * scale + offsetX;
+                    const y0 = (py - centerY) * scale + offsetY;
+                    
+                    let x = 0;
+                    let y = 0;
+                    let iteration = 0;
+                    
+                    while (x * x + y * y <= 4 && iteration < maxIter) {
+                        const xTemp = x * x - y * y + x0;
+                        y = 2 * x * y + y0;
+                        x = xTemp;
+                        iteration++;
+                    }
+                    
+                    const idx = (py * width + px) * 4;
+                    
+                    if (iteration === maxIter) {
+                        data[idx] = 0;
+                        data[idx + 1] = 0;
+                        data[idx + 2] = 0;
+                    } else {
+                        const hue = iteration / maxIter * 360;
+                        const rgb = hslToRgb(hue / 360, 1, 0.5);
+                        data[idx] = rgb[0];
+                        data[idx + 1] = rgb[1];
+                        data[idx + 2] = rgb[2];
+                    }
+                    data[idx + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+        
+        // Draw current fractal
+        function drawFractal() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+            ctx.fillRect(0, 0, width, height);
+            
+            switch (mode) {
+                case 'tree':
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(angle);
+                    ctx.translate(-centerX, -centerY);
+                    drawTree(centerX, height * 0.85, height * 0.25, -Math.PI / 2, iterations);
+                    ctx.restore();
+                    break;
+                    
+                case 'sierpinski':
+                    const size = Math.min(width, height) * 0.8;
+                    const h = size * Math.sqrt(3) / 2;
+                    drawSierpinski(
+                        centerX, centerY - h * 2 / 3,
+                        centerX - size / 2, centerY + h / 3,
+                        centerX + size / 2, centerY + h / 3,
+                        iterations
+                    );
+                    break;
+                    
+                case 'koch':
+                    ctx.save();
+                    ctx.translate(centerX, centerY);
+                    ctx.rotate(angle);
+                    ctx.translate(-centerX, -centerY);
+                    drawKochSnowflake(centerX, centerY, Math.min(width, height) * 0.7, Math.min(iterations, 6));
+                    ctx.restore();
+                    break;
+                    
+                case 'mandelbrot':
+                    drawMandelbrot();
+                    break;
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            if (mode === 'mandelbrot') {
+                zoom *= 1.5;
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            angle = ((mouseX - centerX) / width) * Math.PI * 0.5;
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            iterations = Math.max(3, Math.min(15, iterations + Math.sign(e.deltaY) * -1));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            angle = ((mouseX - centerX) / width) * Math.PI * 0.5;
+        }, { passive: false });
+        
+        // Mode buttons
+        const treeBtn = document.getElementById('treeBtn');
+        const sierpinskiBtn = document.getElementById('sierpinskiBtn');
+        const kochBtn = document.getElementById('kochBtn');
+        const mandelbrotBtn = document.getElementById('mandelbrotBtn');
+        
+        function setMode(newMode) {
+            mode = newMode;
+            zoom = 1;
+            treeBtn.classList.toggle('active', newMode === 'tree');
+            sierpinskiBtn.classList.toggle('active', newMode === 'sierpinski');
+            kochBtn.classList.toggle('active', newMode === 'koch');
+            mandelbrotBtn.classList.toggle('active', newMode === 'mandelbrot');
+        }
+        
+        treeBtn.addEventListener('click', () => setMode('tree'));
+        sierpinskiBtn.addEventListener('click', () => setMode('sierpinski'));
+        kochBtn.addEventListener('click', () => setMode('koch'));
+        mandelbrotBtn.addEventListener('click', () => setMode('mandelbrot'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        });
+        
+        // Main animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            drawFractal();
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Iterations: ${iterations}<br>
+                Mode: ${mode.toUpperCase()}<br>
+                ${mode === 'mandelbrot' ? `Zoom: ${zoom.toFixed(1)}x` : ''}
+            `;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
