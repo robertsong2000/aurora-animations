@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矩阵雨 | Matrix Digital Rain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00ff00;
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 
+                0 0 10px #00ff00,
+                0 0 20px #00ff00,
+                0 0 40px #00ff00;
+            animation: glitch 3s infinite;
+        }
+        
+        @keyframes glitch {
+            0%, 90%, 100% { 
+                opacity: 1;
+                transform: translateX(-50%) skewX(0deg);
+            }
+            92% { 
+                opacity: 0.8;
+                transform: translateX(-50%) skewX(-2deg);
+            }
+            94% { 
+                opacity: 1;
+                transform: translateX(-50%) skewX(2deg);
+            }
+            96% { 
+                opacity: 0.9;
+                transform: translateX(-50%) skewX(-1deg);
+            }
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid rgba(0, 255, 0, 0.5);
+            color: #00ff00;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.3s;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(0, 255, 0, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+        
+        .control-btn.active {
+            background: rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.7);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #00ff00;
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.8;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 0, 0.7);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 2px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">MATRIX</div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="binaryBtn">二进制</button>
+        <button class="control-btn" id="matrixBtn">矩阵</button>
+        <button class="control-btn" id="kanjiBtn">汉字</button>
+        <button class="control-btn" id="emojiBtn">符号</button>
+    </div>
+    
+    <div class="stats" id="stats"></div>
+    <canvas id="matrix"></canvas>
+    <div class="info">移动鼠标扭曲矩阵 · 点击产生故障 · 滚轮调整速度</div>
+    
+    <script>
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Matrix parameters
+        const fontSize = 14;
+        let columns = Math.floor(width / fontSize);
+        let drops = [];
+        let speed = 1;
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let glitches = [];
+        
+        // Character sets
+        const charSets = {
+            binary: '01',
+            matrix: 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789',
+            kanji: '田由甲申甴电甶男甸甹町画甼甽甾甿畀畁畂畃畄畅畆畇畈畉砀畋界畍畎畴畐畑',
+            emoji: '⬢⬡⬢⬡⬢⬡▲△▴▵▶▷▸▹►▻▼▽▾▿◀◁◂◃◄◅◆◇◈◉◊○◌◍◎●◐◑◒◓◔◕⬤⬥⬦⬧⬨⬩'
+        };
+        
+        let currentCharSet = 'binary';
+        
+        // Initialize drops
+        function initDrops() {
+            drops = [];
+            columns = Math.floor(width / fontSize);
+            
+            for (let i = 0; i < columns; i++) {
+                drops[i] = {
+                    y: Math.random() * height / fontSize,
+                    speed: Math.random() * 0.5 + 0.5,
+                    opacity: Math.random() * 0.5 + 0.5,
+                    chars: [],
+                    length: Math.floor(Math.random() * 20) + 10
+                };
+                
+                // Initialize character trail
+                for (let j = 0; j < drops[i].length; j++) {
+                    drops[i].chars[j] = getRandomChar();
+                }
+            }
+        }
+        
+        function getRandomChar() {
+            const chars = charSets[currentCharSet];
+            return chars[Math.floor(Math.random() * chars.length)];
+        }
+        
+        initDrops();
+        
+        // Glitch effect
+        class Glitch {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.lines = [];
+                this.life = 1;
+                
+                // Create glitch lines
+                for (let i = 0; i < 10; i++) {
+                    this.lines.push({
+                        x: x + (Math.random() - 0.5) * 100,
+                        y: y + (Math.random() - 0.5) * 100,
+                        width: Math.random() * 200 + 50,
+                        height: Math.random() * 3 + 1,
+                        offset: Math.random() * 10 - 5
+                    });
+                }
+            }
+            
+            update() {
+                this.life -= 0.02;
+                return this.life > 0;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = '#00ff00';
+                
+                this.lines.forEach(line => {
+                    ctx.fillRect(
+                        line.x + Math.random() * line.offset,
+                        line.y,
+                        line.width,
+                        line.height
+                    );
+                });
+                
+                ctx.restore();
+            }
+        }
+        
+        // Draw matrix rain
+        function draw() {
+            // Semi-transparent black to create fade effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+            
+            ctx.font = fontSize + 'px Courier New';
+            
+            // Mouse influence
+            const mouseCol = Math.floor(mouseX / fontSize);
+            const mouseRow = Math.floor(mouseY / fontSize);
+            const influenceRadius = 5;
+            
+            for (let i = 0; i < drops.length; i++) {
+                const drop = drops[i];
+                
+                // Calculate distance from mouse
+                const distFromMouse = Math.abs(i - mouseCol);
+                const mouseInfluence = distFromMouse < influenceRadius ? 
+                    (1 - distFromMouse / influenceRadius) * 2 : 1;
+                
+                // Draw trail
+                for (let j = 0; j < drop.length; j++) {
+                    const charY = (drop.y - j) * fontSize;
+                    
+                    if (charY > 0 && charY < height) {
+                        // Gradient opacity for trail
+                        const trailOpacity = (1 - j / drop.length) * drop.opacity;
+                        
+                        // Brightest character at the head
+                        if (j === 0) {
+                            ctx.fillStyle = '#ffffff';
+                            ctx.shadowBlur = 20;
+                            ctx.shadowColor = '#00ff00';
+                        } else {
+                            ctx.fillStyle = `rgba(0, 255, 0, ${trailOpacity})`;
+                            ctx.shadowBlur = 0;
+                        }
+                        
+                        // Update character randomly
+                        if (Math.random() > 0.95) {
+                            drop.chars[j] = getRandomChar();
+                        }
+                        
+                        // Draw character
+                        ctx.fillText(drop.chars[j], i * fontSize, charY);
+                    }
+                }
+                
+                // Reset shadow
+                ctx.shadowBlur = 0;
+                
+                // Move drop down
+                drop.y += drop.speed * speed * mouseInfluence;
+                
+                // Reset when reaching bottom
+                if ((drop.y - drop.length) * fontSize > height) {
+                    drop.y = 0;
+                    drop.speed = Math.random() * 0.5 + 0.5;
+                    drop.length = Math.floor(Math.random() * 20) + 10;
+                }
+            }
+            
+            // Draw glitches
+            glitches = glitches.filter(glitch => {
+                glitch.draw(ctx);
+                return glitch.update();
+            });
+        }
+        
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            glitches.push(new Glitch(e.clientX, e.clientY));
+            
+            // Disturb nearby drops
+            const clickCol = Math.floor(e.clientX / fontSize);
+            const clickRadius = 10;
+            
+            for (let i = Math.max(0, clickCol - clickRadius); 
+                 i < Math.min(columns, clickCol + clickRadius); i++) {
+                if (drops[i]) {
+                    drops[i].y = Math.random() * height / fontSize;
+                    drops[i].speed = Math.random() * 0.5 + 1;
+                }
+            }
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            speed = Math.max(0.2, Math.min(3, speed + e.deltaY * 0.001));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            glitches.push(new Glitch(e.touches[0].clientX, e.touches[0].clientY));
+        });
+        
+        // Mode buttons
+        const binaryBtn = document.getElementById('binaryBtn');
+        const matrixBtn = document.getElementById('matrixBtn');
+        const kanjiBtn = document.getElementById('kanjiBtn');
+        const emojiBtn = document.getElementById('emojiBtn');
+        
+        function setCharSet(mode) {
+            currentCharSet = mode;
+            binaryBtn.classList.toggle('active', mode === 'binary');
+            matrixBtn.classList.toggle('active', mode === 'matrix');
+            kanjiBtn.classList.toggle('active', mode === 'kanji');
+            emojiBtn.classList.toggle('active', mode === 'emoji');
+            
+            // Update all characters
+            drops.forEach(drop => {
+                drop.chars = drop.chars.map(() => getRandomChar());
+            });
+        }
+        
+        binaryBtn.addEventListener('click', () => setCharSet('binary'));
+        matrixBtn.addEventListener('click', () => setCharSet('matrix'));
+        kanjiBtn.addEventListener('click', () => setCharSet('kanji'));
+        emojiBtn.addEventListener('click', () => setCharSet('emoji'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initDrops();
+        });
+        
+        // Main animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            draw();
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                COLUMNS: ${columns}<br>
+                SPEED: ${speed.toFixed(2)}x<br>
+                MODE: ${currentCharSet.toUpperCase()}
+            `;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
