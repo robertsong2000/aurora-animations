@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>银河系 | Galaxy Spiral</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 32px;
+            font-weight: 300;
+            letter-spacing: 12px;
+            text-transform: uppercase;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+            animation: titleFade 3s ease-in-out infinite;
+        }
+        
+        @keyframes titleFade {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.8;
+        }
+        
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 11px;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.3s;
+            letter-spacing: 1px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+        }
+        
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">GALAXY</div>
+    <div class="stats" id="stats"></div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="spiralBtn">螺旋</button>
+        <button class="control-btn" id="whirlBtn">旋涡</button>
+        <button class="control-btn" id="burstBtn">爆发</button>
+    </div>
+    
+    <canvas id="galaxy"></canvas>
+    <div class="info">移动鼠标扭曲时空 · 点击创建新星系 · 滚轮调整旋转速度</div>
+    
+    <script>
+        const canvas = document.getElementById('galaxy');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        const PI = Math.PI;
+        
+        // Galaxy parameters
+        let centerX = width / 2;
+        let centerY = height / 2;
+        let stars = [];
+        let nebulae = [];
+        let blackHoles = [];
+        let rotationSpeed = 0.0003;
+        let mouseX = centerX;
+        let mouseY = centerY;
+        let mode = 'spiral';
+        
+        // Color palettes
+        const palettes = {
+            spiral: {
+                core: '#FFD700',
+                arms: ['#FF6B9D', '#C44DFF', '#4DFFFF', '#9DFF4D'],
+                nebula: 'rgba(255, 107, 157, 0.1)'
+            },
+            whirl: {
+                core: '#00FFFF',
+                arms: ['#00FF88', '#0088FF', '#FF0088', '#FFFF00'],
+                nebula: 'rgba(0, 255, 255, 0.1)'
+            },
+            burst: {
+                core: '#FF4400',
+                arms: ['#FF0000', '#FF8800', '#FFFF00', '#FFFFFF'],
+                nebula: 'rgba(255, 68, 0, 0.1)'
+            }
+        };
+        
+        // Star class
+        class Star {
+            constructor(armIndex = -1) {
+                this.armIndex = armIndex;
+                this.reset();
+            }
+            
+            reset() {
+                if (this.armIndex >= 0) {
+                    // Arm star
+                    const armAngle = (this.armIndex / 4) * TWO_PI;
+                    const distance = Math.random() * Math.min(width, height) * 0.4;
+                    const spread = (Math.random() - 0.5) * 50;
+                    
+                    this.angle = armAngle + distance * 0.005;
+                    this.distance = distance + spread;
+                    this.x = centerX + Math.cos(this.angle) * this.distance;
+                    this.y = centerY + Math.sin(this.angle) * this.distance;
+                } else {
+                    // Background star
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.angle = Math.atan2(this.y - centerY, this.x - centerX);
+                    this.distance = Math.sqrt(
+                        Math.pow(this.x - centerX, 2) + 
+                        Math.pow(this.y - centerY, 2)
+                    );
+                }
+                
+                this.size = Math.random() * 2 + 0.5;
+                this.brightness = Math.random();
+                this.twinkleSpeed = Math.random() * 0.05 + 0.02;
+                this.twinklePhase = Math.random() * TWO_PI;
+                this.rotationSpeed = rotationSpeed * (1 + Math.random() * 0.5);
+            }
+            
+            update(time) {
+                // Rotate around center
+                this.angle += this.rotationSpeed;
+                
+                // Apply mouse distortion
+                const dx = mouseX - centerX;
+                const dy = mouseY - centerY;
+                const mouseInfluence = Math.sqrt(dx * dx + dy * dy) / Math.min(width, height);
+                
+                this.x = centerX + Math.cos(this.angle) * this.distance * (1 + mouseInfluence * 0.1);
+                this.y = centerY + Math.sin(this.angle) * this.distance * (1 + mouseInfluence * 0.1);
+                
+                // Twinkle
+                this.brightness = 0.5 + Math.sin(time * this.twinkleSpeed + this.twinklePhase) * 0.5;
+            }
+            
+            draw(ctx, palette) {
+                const color = this.armIndex >= 0 
+                    ? palette.arms[this.armIndex % palette.arms.length]
+                    : '#FFFFFF';
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fillStyle = color.replace(')', `, ${this.brightness})`).replace('rgb', 'rgba').replace('#', '');
+                
+                // Convert hex to rgba
+                if (color.startsWith('#')) {
+                    const r = parseInt(color.slice(1, 3), 16);
+                    const g = parseInt(color.slice(3, 5), 16);
+                    const b = parseInt(color.slice(5, 7), 16);
+                    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${this.brightness})`;
+                }
+                
+                ctx.fill();
+                
+                // Glow for brighter stars
+                if (this.size > 1.5) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 2, 0, TWO_PI);
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, 0,
+                        this.x, this.y, this.size * 2
+                    );
+                    gradient.addColorStop(0, ctx.fillStyle);
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Nebula class
+        class Nebula {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.size = Math.random() * 100 + 50;
+                this.rotation = Math.random() * TWO_PI;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.001;
+                this.opacity = Math.random() * 0.3 + 0.1;
+            }
+            
+            update() {
+                this.rotation += this.rotationSpeed;
+            }
+            
+            draw(ctx, color) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size, 0, TWO_PI);
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = this.opacity;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                
+                ctx.restore();
+            }
+        }
+        
+        // Black hole class (mouse interaction)
+        class BlackHole {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 100;
+                this.life = 1;
+            }
+            
+            update() {
+                this.radius += 2;
+                this.life = 1 - (this.radius / this.maxRadius);
+                return this.life > 0;
+            }
+            
+            draw(ctx) {
+                // Event horizon
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 0.5, 0, TWO_PI);
+                ctx.fillStyle = `rgba(0, 0, 0, ${this.life})`;
+                ctx.fill();
+                
+                // Accretion disk
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, this.radius * 0.5,
+                    this.x, this.y, this.radius
+                );
+                gradient.addColorStop(0, `rgba(255, 215, 0, ${this.life * 0.8})`);
+                gradient.addColorStop(0.5, `rgba(255, 100, 0, ${this.life * 0.5})`);
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // Initialize galaxy
+        function initGalaxy() {
+            stars = [];
+            nebulae = [];
+            
+            // Create background stars
+            for (let i = 0; i < 200; i++) {
+                stars.push(new Star(-1));
+            }
+            
+            // Create arm stars
+            for (let arm = 0; arm < 4; arm++) {
+                for (let i = 0; i < 150; i++) {
+                    stars.push(new Star(arm));
+                }
+            }
+            
+            // Create nebulae
+            for (let i = 0; i < 10; i++) {
+                nebulae.push(new Nebula());
+            }
+        }
+        
+        initGalaxy();
+        
+        // Draw galactic core
+        function drawCore(palette) {
+            // Outer glow
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, 100
+            );
+            gradient.addColorStop(0, palette.core);
+            gradient.addColorStop(0.3, palette.core.replace(')', ', 0.5)').replace('rgb', 'rgba'));
+            gradient.addColorStop(1, 'transparent');
+            
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 100, 0, TWO_PI);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            // Inner core
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 20, 0, TWO_PI);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fill();
+            
+            // Core glow
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 30, 0, TWO_PI);
+            const coreGlow = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, 30
+            );
+            coreGlow.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            coreGlow.addColorStop(1, 'transparent');
+            ctx.fillStyle = coreGlow;
+            ctx.fill();
+        }
+        
+        // Draw spiral arms
+        function drawArms(time, palette) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(time * rotationSpeed * 0.5);
+            
+            for (let arm = 0; arm < 4; arm++) {
+                const armAngle = (arm / 4) * TWO_PI;
+                
+                ctx.save();
+                ctx.rotate(armAngle);
+                
+                // Draw arm curve
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                
+                for (let i = 0; i < 100; i++) {
+                    const distance = i * 5;
+                    const angle = distance * 0.01;
+                    const x = Math.cos(angle) * distance;
+                    const y = Math.sin(angle) * distance;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.strokeStyle = palette.arms[arm % palette.arms.length];
+                ctx.lineWidth = 30;
+                ctx.globalAlpha = 0.1;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+                
+                ctx.restore();
+            }
+            
+            ctx.restore();
+        }
+        
+        // Event listeners
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            blackHoles.push(new BlackHole(e.clientX, e.clientY));
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            rotationSpeed = Math.max(0.0001, Math.min(0.001, rotationSpeed + e.deltaY * 0.00001));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            blackHoles.push(new BlackHole(e.touches[0].clientX, e.touches[0].clientY));
+        });
+        
+        // Mode buttons
+        const spiralBtn = document.getElementById('spiralBtn');
+        const whirlBtn = document.getElementById('whirlBtn');
+        const burstBtn = document.getElementById('burstBtn');
+        
+        function setMode(newMode) {
+            mode = newMode;
+            spiralBtn.classList.toggle('active', newMode === 'spiral');
+            whirlBtn.classList.toggle('active', newMode === 'whirl');
+            burstBtn.classList.toggle('active', newMode === 'burst');
+        }
+        
+        spiralBtn.addEventListener('click', () => setMode('spiral'));
+        whirlBtn.addEventListener('click', () => setMode('whirl'));
+        burstBtn.addEventListener('click', () => setMode('burst'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            initGalaxy();
+        });
+        
+        // Main animation loop
+        let time = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Clear with fade
+            ctx.fillStyle = 'rgba(0, 0, 5, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+            
+            const palette = palettes[mode];
+            
+            // Draw nebulae
+            nebulae.forEach(nebula => {
+                nebula.update();
+                nebula.draw(ctx, palette.nebula);
+            });
+            
+            // Draw spiral arms
+            drawArms(time, palette);
+            
+            // Update and draw stars
+            stars.forEach(star => {
+                star.update(time);
+                star.draw(ctx, palette);
+            });
+            
+            // Draw black holes
+            blackHoles = blackHoles.filter(hole => {
+                hole.draw(ctx);
+                return hole.update();
+            });
+            
+            // Draw galactic core
+            drawCore(palette);
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Stars: ${stars.length}<br>
+                Black Holes: ${blackHoles.length}<br>
+                Speed: ${(rotationSpeed * 10000).toFixed(2)}
+            `;
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
