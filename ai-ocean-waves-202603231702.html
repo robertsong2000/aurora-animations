@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波浪动画 | Ocean Waves</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB 0%, #4169E1 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 36px;
+            font-weight: 300;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(-10px); }
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            letter-spacing: 1px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.35);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+            transform: translateX(-5px);
+        }
+        
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.6);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.6;
+            backdrop-filter: blur(5px);
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 10px;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">OCEAN WAVES</div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="calmBtn">平静</button>
+        <button class="control-btn" id="normalBtn">正常</button>
+        <button class="control-btn" id="stormBtn">风暴</button>
+        <button class="control-btn" id="tsunamiBtn">海啸</button>
+    </div>
+    
+    <div class="stats" id="stats"></div>
+    <canvas id="ocean"></canvas>
+    <div class="info">点击创建涟漪 · 移动鼠标改变风向 · 滚轮调整波浪高度</div>
+    
+    <script>
+        const canvas = document.getElementById('ocean');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        
+        // Wave parameters
+        let waves = [];
+        let ripples = [];
+        let seagulls = [];
+        let boats = [];
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let mode = 'calm';
+        let waveHeight = 50;
+        
+        // Mode configurations
+        const modes = {
+            calm: {
+                waveCount: 3,
+                waveHeight: 30,
+                waveSpeed: 0.02,
+                windStrength: 0.5,
+                color: 'rgba(65, 105, 225, 0.6)'
+            },
+            normal: {
+                waveCount: 5,
+                waveHeight: 50,
+                waveSpeed: 0.03,
+                windStrength: 1,
+                color: 'rgba(30, 144, 255, 0.6)'
+            },
+            storm: {
+                waveCount: 8,
+                waveHeight: 80,
+                waveSpeed: 0.05,
+                windStrength: 2,
+                color: 'rgba(70, 130, 180, 0.7)'
+            },
+            tsunami: {
+                waveCount: 10,
+                waveHeight: 150,
+                waveSpeed: 0.08,
+                windStrength: 3,
+                color: 'rgba(25, 25, 112, 0.8)'
+            }
+        };
+        
+        // Wave class
+        class Wave {
+            constructor(index, total) {
+                this.index = index;
+                this.total = total;
+                this.baseY = height * 0.4 + (index / total) * (height * 0.5);
+                this.amplitude = modes[mode].waveHeight + Math.random() * 20;
+                this.frequency = 0.01 + Math.random() * 0.005;
+                this.speed = modes[mode].waveSpeed + Math.random() * 0.01;
+                this.phase = Math.random() * TWO_PI;
+                this.points = [];
+            }
+            
+            update(time, windX) {
+                this.points = [];
+                
+                for (let x = 0; x <= width; x += 5) {
+                    const y = this.baseY + 
+                        Math.sin(x * this.frequency + time * this.speed + this.phase) * this.amplitude +
+                        Math.sin(x * this.frequency * 2 + time * this.speed * 1.5) * this.amplitude * 0.3 +
+                        Math.sin(x * this.frequency * 0.5 + time * this.speed * 0.5) * this.amplitude * 0.5;
+                    
+                    // Wind influence
+                    const windOffset = windX * (this.index / this.total) * 5;
+                    
+                    this.points.push({ x: x + windOffset, y: y });
+                }
+            }
+            
+            draw(ctx, alpha) {
+                ctx.beginPath();
+                ctx.moveTo(this.points[0].x, this.points[0].y);
+                
+                for (let i = 1; i < this.points.length - 2; i++) {
+                    const xc = (this.points[i].x + this.points[i + 1].x) / 2;
+                    const yc = (this.points[i].y + this.points[i + 1].y) / 2;
+                    ctx.quadraticCurveTo(this.points[i].x, this.points[i].y, xc, yc);
+                }
+                
+                ctx.lineTo(width, height);
+                ctx.lineTo(0, height);
+                ctx.closePath();
+                
+                const gradient = ctx.createLinearGradient(0, this.baseY - this.amplitude, 0, height);
+                gradient.addColorStop(0, modes[mode].color);
+                gradient.addColorStop(1, 'rgba(0, 0, 50, 0.9)');
+                
+                ctx.fillStyle = gradient;
+                ctx.globalAlpha = alpha;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+        
+        // Ripple class
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 100;
+                this.speed = 2;
+                this.opacity = 0.8;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.opacity = 0.8 * (1 - this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+            
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+        
+        // Seagull class
+        class Seagull {
+            constructor() {
+                this.x = -50;
+                this.y = Math.random() * (height * 0.3) + 50;
+                this.speed = Math.random() * 2 + 1;
+                this.wingAngle = 0;
+                this.size = Math.random() * 10 + 5;
+            }
+            
+            update() {
+                this.x += this.speed;
+                this.wingAngle += 0.2;
+                return this.x < width + 50;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = 2;
+                
+                // Left wing
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(-this.size, Math.sin(this.wingAngle) * this.size * 0.5 - this.size * 0.3, -this.size * 1.5, Math.sin(this.wingAngle) * this.size);
+                ctx.stroke();
+                
+                // Right wing
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(this.size, Math.sin(this.wingAngle) * this.size * 0.5 - this.size * 0.3, this.size * 1.5, Math.sin(this.wingAngle) * this.size);
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Boat class
+        class Boat {
+            constructor() {
+                this.x = Math.random() * width;
+                this.baseY = height * 0.5;
+                this.y = this.baseY;
+                this.speed = Math.random() * 0.5 + 0.2;
+                this.bobPhase = Math.random() * TWO_PI;
+                this.size = Math.random() * 20 + 15;
+            }
+            
+            update(time, waveY) {
+                this.x += this.speed;
+                if (this.x > width + 50) this.x = -50;
+                
+                // Bob on waves
+                this.y = this.baseY + Math.sin(time * 0.002 + this.bobPhase) * 10 + waveY * 0.3;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Hull
+                ctx.fillStyle = '#8B4513';
+                ctx.beginPath();
+                ctx.moveTo(-this.size, 0);
+                ctx.lineTo(-this.size * 0.8, this.size * 0.4);
+                ctx.lineTo(this.size * 0.8, this.size * 0.4);
+                ctx.lineTo(this.size, 0);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Sail
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.moveTo(0, -this.size);
+                ctx.lineTo(0, this.size * 0.3);
+                ctx.lineTo(this.size * 0.6, 0);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Initialize ocean
+        function initOcean() {
+            waves = [];
+            const config = modes[mode];
+            
+            for (let i = 0; i < config.waveCount; i++) {
+                waves.push(new Wave(i, config.waveCount));
+            }
+            
+            boats = [];
+            for (let i = 0; i < 3; i++) {
+                boats.push(new Boat());
+            }
+        }
+        
+        initOcean();
+        
+        // Draw sky
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            
+            switch (mode) {
+                case 'calm':
+                    gradient.addColorStop(0, '#87CEEB');
+                    gradient.addColorStop(1, '#4169E1');
+                    break;
+                case 'normal':
+                    gradient.addColorStop(0, '#6495ED');
+                    gradient.addColorStop(1, '#4169E1');
+                    break;
+                case 'storm':
+                    gradient.addColorStop(0, '#2F4F4F');
+                    gradient.addColorStop(1, '#191970');
+                    break;
+                case 'tsunami':
+                    gradient.addColorStop(0, '#1a1a2e');
+                    gradient.addColorStop(1, '#0a0a1a');
+                    break;
+            }
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Sun/Moon
+            if (mode === 'calm' || mode === 'normal') {
+                // Sun
+                ctx.fillStyle = '#FFD700';
+                ctx.shadowBlur = 50;
+                ctx.shadowColor = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(width * 0.8, height * 0.15, 40, 0, TWO_PI);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+            
+            // Clouds
+            if (mode === 'storm' || mode === 'tsunami') {
+                ctx.fillStyle = 'rgba(50, 50, 60, 0.6)';
+                for (let i = 0; i < 5; i++) {
+                    const x = (i * width / 4) + Math.sin(Date.now() * 0.0001 + i) * 50;
+                    const y = 50 + Math.sin(Date.now() * 0.00015 + i) * 20;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 60, 0, TWO_PI);
+                    ctx.arc(x + 40, y - 15, 45, 0, TWO_PI);
+                    ctx.arc(x + 80, y, 50, 0, TWO_PI);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            ripples.push(new Ripple(e.clientX, e.clientY));
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            waveHeight = Math.max(20, Math.min(200, waveHeight + e.deltaY * 0.1));
+            modes[mode].waveHeight = waveHeight;
+            initOcean();
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            ripples.push(new Ripple(touch.clientX, touch.clientY));
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        }, { passive: false });
+        
+        // Mode buttons
+        const calmBtn = document.getElementById('calmBtn');
+        const normalBtn = document.getElementById('normalBtn');
+        const stormBtn = document.getElementById('stormBtn');
+        const tsunamiBtn = document.getElementById('tsunamiBtn');
+        
+        function setMode(newMode) {
+            mode = newMode;
+            calmBtn.classList.toggle('active', newMode === 'calm');
+            normalBtn.classList.toggle('active', newMode === 'normal');
+            stormBtn.classList.toggle('active', newMode === 'storm');
+            tsunamiBtn.classList.toggle('active', newMode === 'tsunami');
+            initOcean();
+        }
+        
+        calmBtn.addEventListener('click', () => setMode('calm'));
+        normalBtn.addEventListener('click', () => setMode('normal'));
+        stormBtn.addEventListener('click', () => setMode('storm'));
+        tsunamiBtn.addEventListener('click', () => setMode('tsunami'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initOcean();
+        });
+        
+        // Main animation loop
+        let time = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Draw sky
+            drawSky();
+            
+            // Calculate wind based on mouse
+            const windX = (mouseX - width / 2) / width * modes[mode].windStrength * 20;
+            
+            // Update and draw waves
+            waves.forEach((wave, i) => {
+                wave.update(time, windX);
+                const alpha = 0.3 + (i / waves.length) * 0.5;
+                wave.draw(ctx, alpha);
+            });
+            
+            // Update and draw boats
+            const waveY = waves[0].points[Math.floor(width / 2 / 5)]?.y || height * 0.5;
+            boats.forEach(boat => {
+                boat.update(time, waveY);
+                boat.draw(ctx);
+            });
+            
+            // Add seagulls occasionally
+            if (mode === 'calm' && Math.random() > 0.995) {
+                seagulls.push(new Seagull());
+            }
+            
+            // Update and draw seagulls
+            seagulls = seagulls.filter(seagull => {
+                seagull.draw(ctx);
+                return seagull.update();
+            });
+            
+            // Update and draw ripples
+            ripples = ripples.filter(ripple => {
+                ripple.draw(ctx);
+                return ripple.update();
+            });
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Waves: ${waves.length}<br>
+                Height: ${modes[mode].waveHeight.toFixed(0)}<br>
+                Mode: ${mode.toUpperCase()}
+            `;
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
