@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市天际线 | City Skyline</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 36px;
+            font-weight: 300;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            letter-spacing: 1px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+            transform: translateX(-5px);
+        }
+        
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.6;
+            backdrop-filter: blur(5px);
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">CITY SKYLINE</div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="dayBtn">白天</button>
+        <button class="control-btn" id="nightBtn">夜晚</button>
+        <button class="control-btn" id="duskBtn">黄昏</button>
+        <button class="control-btn" id="cyberBtn">赛博朋克</button>
+    </div>
+    
+    <div class="stats" id="stats"></div>
+    <canvas id="city"></canvas>
+    <div class="info">点击建筑物开关灯 · 移动鼠标控制云层 · 滚轮调整时间</div>
+    
+    <script>
+        const canvas = document.getElementById('city');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        
+        // City parameters
+        let buildings = [];
+        let clouds = [];
+        let stars = [];
+        let birds = [];
+        let planes = [];
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let timeOfDay = 0; // 0-1 (0=day, 0.5=sunset, 1=night)
+        let mode = 'day';
+        
+        // Color palettes
+        const palettes = {
+            day: {
+                sky: ['#87CEEB', '#B0E0E6', '#F0F8FF'],
+                building: ['#2C3E50', '#34495E', '#5D6D7E'],
+                window: '#FFE4B5',
+                cloud: 'rgba(255, 255, 255, 0.8)'
+            },
+            night: {
+                sky: ['#0a0a23', '#1a1a3e', '#2a2a5e'],
+                building: ['#1a1a2e', '#16213e', '#0f3460'],
+                window: '#FFD700',
+                cloud: 'rgba(100, 100, 150, 0.3)'
+            },
+            dusk: {
+                sky: ['#FF6B6B', '#FFA07A', '#FFD700'],
+                building: ['#2C3E50', '#5D4E6D', '#8E7CC3'],
+                window: '#FFF8DC',
+                cloud: 'rgba(255, 182, 193, 0.6)'
+            },
+            cyber: {
+                sky: ['#0a0a1a', '#1a0a2e', '#2a1a4e'],
+                building: ['#0a0a1a', '#1a0a2e', '#2a1a4e'],
+                window: '#00FFFF',
+                cloud: 'rgba(138, 43, 226, 0.2)'
+            }
+        };
+        
+        // Building class
+        class Building {
+            constructor(x, baseWidth) {
+                this.x = x;
+                this.width = baseWidth + Math.random() * 50;
+                this.height = Math.random() * (height * 0.5) + height * 0.2;
+                this.windows = [];
+                this.generateWindows();
+            }
+            
+            generateWindows() {
+                const rows = Math.floor(this.height / 20);
+                const cols = Math.floor(this.width / 15);
+                
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                        this.windows.push({
+                            x: col * 15 + 5,
+                            y: row * 20 + 10,
+                            lit: Math.random() > 0.3,
+                            flicker: Math.random() * TWO_PI
+                        });
+                    }
+                }
+            }
+            
+            toggleWindow(x, y) {
+                const localX = x - this.x;
+                const localY = y - (height - this.height);
+                
+                this.windows.forEach(win => {
+                    if (localX >= win.x && localX <= win.x + 10 &&
+                        localY >= win.y && localY <= win.y + 15) {
+                        win.lit = !win.lit;
+                    }
+                });
+            }
+            
+            draw(ctx, palette, time) {
+                // Building body
+                const gradient = ctx.createLinearGradient(
+                    this.x, height - this.height,
+                    this.x + this.width, height
+                );
+                gradient.addColorStop(0, palette.building[0]);
+                gradient.addColorStop(1, palette.building[2]);
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(this.x, height - this.height, this.width, this.height);
+                
+                // Building outline
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x, height - this.height, this.width, this.height);
+                
+                // Windows
+                const isNight = mode === 'night' || mode === 'cyber';
+                
+                this.windows.forEach(win => {
+                    const flickerAmount = Math.sin(time * 0.003 + win.flicker) * 0.2;
+                    const opacity = win.lit ? (isNight ? 0.9 + flickerAmount : 0.5) : 0.1;
+                    
+                    ctx.fillStyle = win.lit ? palette.window : 'rgba(50, 50, 50, 0.3)';
+                    ctx.globalAlpha = opacity;
+                    ctx.fillRect(
+                        this.x + win.x,
+                        height - this.height + win.y,
+                        10,
+                        15
+                    );
+                });
+                
+                ctx.globalAlpha = 1;
+                
+                // Roof details
+                if (this.height > height * 0.4) {
+                    ctx.fillStyle = palette.building[0];
+                    ctx.fillRect(this.x + this.width * 0.3, height - this.height - 20, 20, 20);
+                    
+                    // Antenna
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + this.width * 0.4, height - this.height);
+                    ctx.lineTo(this.x + this.width * 0.4, height - this.height - 40);
+                    ctx.stroke();
+                    
+                    // Blinking light
+                    if (Math.sin(time * 0.005) > 0) {
+                        ctx.fillStyle = '#FF0000';
+                        ctx.beginPath();
+                        ctx.arc(this.x + this.width * 0.4, height - this.height - 40, 3, 0, TWO_PI);
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+        
+        // Cloud class
+        class Cloud {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = -200;
+                this.y = Math.random() * (height * 0.3) + 50;
+                this.speed = Math.random() * 0.5 + 0.2;
+                this.size = Math.random() * 80 + 40;
+            }
+            
+            update() {
+                const wind = (mouseX - width / 2) / width * 2;
+                this.x += this.speed + wind;
+                
+                if (this.x > width + 200) {
+                    this.reset();
+                }
+            }
+            
+            draw(ctx, palette) {
+                ctx.fillStyle = palette.cloud;
+                
+                // Draw fluffy cloud
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 0.5, 0, TWO_PI);
+                ctx.arc(this.x + this.size * 0.4, this.y - this.size * 0.2, this.size * 0.4, 0, TWO_PI);
+                ctx.arc(this.x + this.size * 0.8, this.y, this.size * 0.45, 0, TWO_PI);
+                ctx.arc(this.x + this.size * 0.4, this.y + this.size * 0.1, this.size * 0.35, 0, TWO_PI);
+                ctx.fill();
+            }
+        }
+        
+        // Star class
+        class Star {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * (height * 0.5);
+                this.size = Math.random() * 2 + 0.5;
+                this.twinkle = Math.random() * TWO_PI;
+            }
+            
+            draw(ctx, time) {
+                const opacity = 0.5 + Math.sin(time * 0.005 + this.twinkle) * 0.5;
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fill();
+            }
+        }
+        
+        // Bird class
+        class Bird {
+            constructor() {
+                this.x = -20;
+                this.y = Math.random() * (height * 0.4) + 50;
+                this.speed = Math.random() * 2 + 1;
+                this.wingAngle = 0;
+            }
+            
+            update() {
+                this.x += this.speed;
+                this.wingAngle += 0.2;
+                return this.x < width + 20;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.lineWidth = 2;
+                
+                // Left wing
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(-10, Math.sin(this.wingAngle) * 5 - 5, -15, Math.sin(this.wingAngle) * 8);
+                ctx.stroke();
+                
+                // Right wing
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(10, Math.sin(this.wingAngle) * 5 - 5, 15, Math.sin(this.wingAngle) * 8);
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Plane class
+        class Plane {
+            constructor() {
+                this.x = -50;
+                this.y = Math.random() * (height * 0.3) + 30;
+                this.speed = Math.random() * 3 + 2;
+            }
+            
+            update() {
+                this.x += this.speed;
+                return this.x < width + 50;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Body
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 20, 5, 0, 0, TWO_PI);
+                ctx.fill();
+                
+                // Wings
+                ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+                ctx.beginPath();
+                ctx.moveTo(-5, 0);
+                ctx.lineTo(0, -15);
+                ctx.lineTo(5, 0);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Tail
+                ctx.beginPath();
+                ctx.moveTo(-15, 0);
+                ctx.lineTo(-20, -8);
+                ctx.lineTo(-18, 0);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Blinking light
+                if (Math.sin(Date.now() * 0.01) > 0) {
+                    ctx.fillStyle = '#FF0000';
+                    ctx.beginPath();
+                    ctx.arc(-20, 0, 2, 0, TWO_PI);
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            }
+        }
+        
+        // Initialize city
+        function initCity() {
+            buildings = [];
+            let x = 0;
+            
+            while (x < width) {
+                const buildingWidth = Math.random() * 80 + 60;
+                buildings.push(new Building(x, buildingWidth));
+                x += buildingWidth + Math.random() * 20;
+            }
+            
+            // Initialize clouds
+            clouds = [];
+            for (let i = 0; i < 8; i++) {
+                const cloud = new Cloud();
+                cloud.x = Math.random() * width;
+                clouds.push(cloud);
+            }
+            
+            // Initialize stars
+            stars = [];
+            for (let i = 0; i < 100; i++) {
+                stars.push(new Star());
+            }
+        }
+        
+        initCity();
+        
+        // Draw sky
+        function drawSky(time) {
+            const palette = palettes[mode];
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            
+            gradient.addColorStop(0, palette.sky[0]);
+            gradient.addColorStop(0.5, palette.sky[1]);
+            gradient.addColorStop(1, palette.sky[2]);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw stars (night modes)
+            if (mode === 'night' || mode === 'cyber') {
+                stars.forEach(star => star.draw(ctx, time));
+            }
+            
+            // Draw sun/moon
+            if (mode === 'day') {
+                // Sun
+                ctx.fillStyle = '#FFD700';
+                ctx.shadowBlur = 50;
+                ctx.shadowColor = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(width * 0.8, height * 0.15, 40, 0, TWO_PI);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            } else if (mode === 'night' || mode === 'cyber') {
+                // Moon
+                ctx.fillStyle = '#F0F0F0';
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#F0F0F0';
+                ctx.beginPath();
+                ctx.arc(width * 0.8, height * 0.15, 30, 0, TWO_PI);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            const clickX = e.clientX;
+            const clickY = e.clientY;
+            
+            buildings.forEach(building => {
+                if (clickX >= building.x && clickX <= building.x + building.width) {
+                    building.toggleWindow(clickX, clickY);
+                }
+            });
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            timeOfDay = Math.max(0, Math.min(1, timeOfDay + e.deltaY * 0.001));
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const clickX = touch.clientX;
+            const clickY = touch.clientY;
+            
+            buildings.forEach(building => {
+                if (clickX >= building.x && clickX <= building.x + building.width) {
+                    building.toggleWindow(clickX, clickY);
+                }
+            });
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+        
+        // Mode buttons
+        const dayBtn = document.getElementById('dayBtn');
+        const nightBtn = document.getElementById('nightBtn');
+        const duskBtn = document.getElementById('duskBtn');
+        const cyberBtn = document.getElementById('cyberBtn');
+        
+        function setMode(newMode) {
+            mode = newMode;
+            dayBtn.classList.toggle('active', newMode === 'day');
+            nightBtn.classList.toggle('active', newMode === 'night');
+            duskBtn.classList.toggle('active', newMode === 'dusk');
+            cyberBtn.classList.toggle('active', newMode === 'cyber');
+        }
+        
+        dayBtn.addEventListener('click', () => setMode('day'));
+        nightBtn.addEventListener('click', () => setMode('night'));
+        duskBtn.addEventListener('click', () => setMode('dusk'));
+        cyberBtn.addEventListener('click', () => setMode('cyber'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initCity();
+        });
+        
+        // Main animation loop
+        let time = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Draw sky
+            drawSky(time);
+            
+            // Update and draw clouds
+            const palette = palettes[mode];
+            clouds.forEach(cloud => {
+                cloud.update();
+                cloud.draw(ctx, palette);
+            });
+            
+            // Draw buildings
+            buildings.forEach(building => {
+                building.draw(ctx, palette, time);
+            });
+            
+            // Add birds occasionally
+            if (mode === 'day' && Math.random() > 0.995) {
+                birds.push(new Bird());
+            }
+            
+            // Update and draw birds
+            birds = birds.filter(bird => {
+                bird.draw(ctx);
+                return bird.update();
+            });
+            
+            // Add planes occasionally
+            if (Math.random() > 0.998) {
+                planes.push(new Plane());
+            }
+            
+            // Update and draw planes
+            planes = planes.filter(plane => {
+                plane.draw(ctx);
+                return plane.update();
+            });
+            
+            // Update stats
+            const litWindows = buildings.reduce((sum, b) => 
+                sum + b.windows.filter(w => w.lit).length, 0);
+            
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Buildings: ${buildings.length}<br>
+                Windows: ${litWindows}<br>
+                Mode: ${mode.toUpperCase()}
+            `;
+            
+            time += deltaTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
