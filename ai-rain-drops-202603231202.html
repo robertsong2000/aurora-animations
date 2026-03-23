@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雨滴效果 | Rain Drops</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #2c3e50 0%, #34495e 50%, #2c3e50 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 36px;
+            font-weight: 300;
+            letter-spacing: 8px;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 2s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            letter-spacing: 1px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+            transform: translateX(-5px);
+        }
+        
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.6;
+            backdrop-filter: blur(5px);
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">雨滴</div>
+    
+    <div class="controls">
+        <button class="control-btn active" id="lightBtn">小雨</button>
+        <button class="control-btn" id="mediumBtn">中雨</button>
+        <button class="control-btn" id="heavyBtn">暴雨</button>
+        <button class="control-btn" id="stormBtn">雷暴</button>
+    </div>
+    
+    <div class="stats" id="stats"></div>
+    <canvas id="rain"></canvas>
+    <div class="info">点击创建涟漪 · 移动鼠标改变风向 · 滚轮调整雨量</div>
+    
+    <script>
+        const canvas = document.getElementById('rain');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        
+        // Rain parameters
+        let raindrops = [];
+        let ripples = [];
+        let mode = 'light';
+        let windX = 0;
+        let windY = 0;
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+        let rainIntensity = 1;
+        
+        // Mode configurations
+        const modes = {
+            light: { dropCount: 100, speed: 8, size: 1, color: 'rgba(174, 194, 224, 0.6)' },
+            medium: { dropCount: 200, speed: 12, size: 1.5, color: 'rgba(174, 194, 224, 0.7)' },
+            heavy: { dropCount: 400, speed: 16, size: 2, color: 'rgba(174, 194, 224, 0.8)' },
+            storm: { dropCount: 600, speed: 20, size: 2.5, color: 'rgba(174, 194, 224, 0.9)' }
+        };
+        
+        // Raindrop class
+        class Raindrop {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * (width + 100) - 50;
+                this.y = Math.random() * -height;
+                this.length = Math.random() * 20 + 10;
+                this.speed = modes[mode].speed + Math.random() * 5;
+                this.size = modes[mode].size + Math.random() * 0.5;
+                this.opacity = Math.random() * 0.5 + 0.5;
+            }
+            
+            update() {
+                // Apply wind
+                this.x += windX * 0.5;
+                this.y += this.speed;
+                
+                // Check if hit ground
+                if (this.y > height) {
+                    // Create ripple
+                    if (Math.random() > 0.7) {
+                        ripples.push(new Ripple(this.x, height - 10));
+                    }
+                    this.reset();
+                }
+            }
+            
+            draw(ctx) {
+                const gradient = ctx.createLinearGradient(
+                    this.x, this.y,
+                    this.x, this.y + this.length
+                );
+                gradient.addColorStop(0, 'transparent');
+                gradient.addColorStop(1, modes[mode].color);
+                
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + windX * 0.1, this.y + this.length);
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = this.size;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            }
+        }
+        
+        // Ripple class
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 30 + Math.random() * 20;
+                this.speed = 1 + Math.random() * 0.5;
+                this.opacity = 0.8;
+                this.rings = 3;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.opacity = 0.8 * (1 - this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+            
+            draw(ctx) {
+                for (let i = 0; i < this.rings; i++) {
+                    const ringRadius = this.radius - i * 5;
+                    if (ringRadius > 0) {
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, ringRadius, 0, TWO_PI);
+                        ctx.strokeStyle = `rgba(174, 194, 224, ${this.opacity * (1 - i / this.rings)})`;
+                        ctx.lineWidth = 2 - i * 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        // Lightning class
+        class Lightning {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = 0;
+                this.segments = [];
+                this.life = 1;
+                this.generatePath();
+            }
+            
+            generatePath() {
+                let x = this.x;
+                let y = 0;
+                
+                while (y < height) {
+                    const nextX = x + (Math.random() - 0.5) * 100;
+                    const nextY = y + Math.random() * 50 + 20;
+                    
+                    this.segments.push({ x1: x, y1: y, x2: nextX, y2: nextY });
+                    
+                    // Branch
+                    if (Math.random() > 0.7 && y < height * 0.7) {
+                        const branchX = nextX + (Math.random() - 0.5) * 80;
+                        const branchY = nextY + Math.random() * 40 + 10;
+                        this.segments.push({ x1: nextX, y1: nextY, x2: branchX, y2: branchY });
+                    }
+                    
+                    x = nextX;
+                    y = nextY;
+                }
+            }
+            
+            update() {
+                this.life -= 0.05;
+                return this.life > 0;
+            }
+            
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ffffff';
+                
+                this.segments.forEach(seg => {
+                    ctx.beginPath();
+                    ctx.moveTo(seg.x1, seg.y1);
+                    ctx.lineTo(seg.x2, seg.y2);
+                    ctx.stroke();
+                });
+                
+                ctx.restore();
+            }
+        }
+        
+        let lightnings = [];
+        
+        // Initialize rain
+        function initRain() {
+            raindrops = [];
+            const count = Math.floor(modes[mode].dropCount * rainIntensity);
+            
+            for (let i = 0; i < count; i++) {
+                raindrops.push(new Raindrop());
+            }
+        }
+        
+        initRain();
+        
+        // Draw background
+        function drawBackground() {
+            // Sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(0.5, '#16213e');
+            gradient.addColorStop(1, '#0f0f23');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            
+            // Clouds
+            if (mode === 'storm') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                for (let i = 0; i < 5; i++) {
+                    const x = (i * width / 4) + Math.sin(Date.now() * 0.0001 + i) * 50;
+                    const y = 50 + Math.sin(Date.now() * 0.00015 + i) * 20;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, 80, 0, TWO_PI);
+                    ctx.arc(x + 50, y - 20, 60, 0, TWO_PI);
+                    ctx.arc(x + 100, y, 70, 0, TWO_PI);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            // Create ripples at click position
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    ripples.push(new Ripple(
+                        e.clientX + (Math.random() - 0.5) * 30,
+                        e.clientY + (Math.random() - 0.5) * 30
+                    ));
+                }, i * 100);
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            // Update wind based on mouse position
+            windX = (mouseX - width / 2) / width * 10;
+            windY = (mouseY - height / 2) / height * 5;
+        });
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            rainIntensity = Math.max(0.2, Math.min(3, rainIntensity + e.deltaY * -0.001));
+            initRain();
+        }, { passive: false });
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    ripples.push(new Ripple(
+                        touch.clientX + (Math.random() - 0.5) * 30,
+                        touch.clientY + (Math.random() - 0.5) * 30
+                    ));
+                }, i * 100);
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            windX = (mouseX - width / 2) / width * 10;
+            windY = (mouseY - height / 2) / height * 5;
+        }, { passive: false });
+        
+        // Mode buttons
+        const lightBtn = document.getElementById('lightBtn');
+        const mediumBtn = document.getElementById('mediumBtn');
+        const heavyBtn = document.getElementById('heavyBtn');
+        const stormBtn = document.getElementById('stormBtn');
+        
+        function setMode(newMode) {
+            mode = newMode;
+            lightBtn.classList.toggle('active', newMode === 'light');
+            mediumBtn.classList.toggle('active', newMode === 'medium');
+            heavyBtn.classList.toggle('active', newMode === 'heavy');
+            stormBtn.classList.toggle('active', newMode === 'storm');
+            initRain();
+        }
+        
+        lightBtn.addEventListener('click', () => setMode('light'));
+        mediumBtn.addEventListener('click', () => setMode('medium'));
+        heavyBtn.addEventListener('click', () => setMode('heavy'));
+        stormBtn.addEventListener('click', () => setMode('storm'));
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initRain();
+        });
+        
+        // Main animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let lightningTimer = 0;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Draw background
+            drawBackground();
+            
+            // Update wind smoothly
+            const targetWindX = (mouseX - width / 2) / width * 10;
+            const targetWindY = (mouseY - height / 2) / height * 5;
+            windX += (targetWindX - windX) * 0.05;
+            windY += (targetWindY - windY) * 0.05;
+            
+            // Update and draw raindrops
+            raindrops.forEach(drop => {
+                drop.update();
+                drop.draw(ctx);
+            });
+            
+            // Update and draw ripples
+            ripples = ripples.filter(ripple => {
+                ripple.draw(ctx);
+                return ripple.update();
+            });
+            
+            // Lightning in storm mode
+            if (mode === 'storm') {
+                lightningTimer += deltaTime;
+                if (lightningTimer > 3000 + Math.random() * 5000) {
+                    lightnings.push(new Lightning());
+                    lightningTimer = 0;
+                }
+                
+                lightnings = lightnings.filter(lightning => {
+                    lightning.draw(ctx);
+                    return lightning.update();
+                });
+            }
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Drops: ${raindrops.length}<br>
+                Ripples: ${ripples.length}<br>
+                Intensity: ${rainIntensity.toFixed(2)}x<br>
+                Mode: ${mode.toUpperCase()}
+            `;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
