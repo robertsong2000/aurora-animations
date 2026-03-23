@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹时钟 | Neon Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: radial-gradient(ellipse at center, #0a0a1a 0%, #000000 100%);
+            font-family: 'Orbitron', 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .clock-container {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+        }
+        
+        .digital-clock {
+            font-size: clamp(48px, 10vw, 120px);
+            font-weight: bold;
+            letter-spacing: 8px;
+            text-shadow: 
+                0 0 10px currentColor,
+                0 0 20px currentColor,
+                0 0 40px currentColor,
+                0 0 80px currentColor;
+            animation: pulse 2s ease-in-out infinite;
+            transition: color 0.5s;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                opacity: 1;
+                text-shadow: 
+                    0 0 10px currentColor,
+                    0 0 20px currentColor,
+                    0 0 40px currentColor,
+                    0 0 80px currentColor;
+            }
+            50% { 
+                opacity: 0.9;
+                text-shadow: 
+                    0 0 15px currentColor,
+                    0 0 30px currentColor,
+                    0 0 60px currentColor,
+                    0 0 100px currentColor;
+            }
+        }
+        
+        .date {
+            font-size: clamp(16px, 3vw, 32px);
+            color: rgba(255, 255, 255, 0.7);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+        
+        .mode-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 12px;
+            letter-spacing: 2px;
+            z-index: 10;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .mode-indicator:hover {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+        
+        .particles-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="background"></canvas>
+    <canvas id="particles" class="particles-canvas"></canvas>
+    
+    <div class="mode-indicator" id="modeIndicator">模式: 霓虹</div>
+    
+    <div class="clock-container">
+        <div class="digital-clock" id="clock">00:00:00</div>
+        <div class="date" id="date">2026年3月23日 星期一</div>
+    </div>
+    
+    <div class="info">点击切换颜色 · 拖动产生涟漪 · 滚轮调整粒子密度</div>
+    
+    <script>
+        // Canvas setup
+        const bgCanvas = document.getElementById('background');
+        const bgCtx = bgCanvas.getContext('2d');
+        const particleCanvas = document.getElementById('particles');
+        const particleCtx = particleCanvas.getContext('2d');
+        
+        let width = bgCanvas.width = particleCanvas.width = window.innerWidth;
+        let height = bgCanvas.height = particleCanvas.height = window.innerHeight;
+        
+        // Performance constants
+        const TWO_PI = Math.PI * 2;
+        const PI = Math.PI;
+        
+        // Color modes
+        const colorModes = [
+            { name: '霓虹', primary: '#00ffff', secondary: '#ff00ff', bg: 'rgba(0, 255, 255, 0.05)' },
+            { name: '赛博', primary: '#ff006e', secondary: '#00f5d4', bg: 'rgba(255, 0, 110, 0.05)' },
+            { name: '矩阵', primary: '#00ff00', secondary: '#00ffaa', bg: 'rgba(0, 255, 0, 0.05)' },
+            { name: '极光', primary: '#a855f7', secondary: '#06b6d4', bg: 'rgba(168, 85, 247, 0.05)' },
+            { name: '烈焰', primary: '#ff6b35', secondary: '#ffd700', bg: 'rgba(255, 107, 53, 0.05)' }
+        ];
+        
+        let currentMode = 0;
+        let particles = [];
+        let ripples = [];
+        let particleDensity = 50;
+        
+        // DOM elements
+        const clockEl = document.getElementById('clock');
+        const dateEl = document.getElementById('date');
+        const modeIndicator = document.getElementById('modeIndicator');
+        
+        // Particle system
+        class Particle {
+            constructor(x, y) {
+                this.x = x || Math.random() * width;
+                this.y = y || Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.size = Math.random() * 3 + 1;
+                this.life = 1;
+                this.decay = Math.random() * 0.01 + 0.005;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                
+                // Bounce off edges
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+                
+                return this.life > 0;
+            }
+            
+            draw(ctx, color) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+                ctx.fillStyle = color.replace(')', `, ${this.life})`).replace('rgb', 'rgba');
+                ctx.fill();
+                
+                // Glow
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, TWO_PI);
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                gradient.addColorStop(0, color.replace(')', `, ${this.life * 0.5})`).replace('rgb', 'rgba'));
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // Ripple effect
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = Math.min(width, height) * 0.3;
+                this.speed = 5;
+                this.life = 1;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.life = 1 - (this.radius / this.maxRadius);
+                return this.life > 0;
+            }
+            
+            draw(ctx, color) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+                ctx.strokeStyle = color.replace(')', `, ${this.life})`).replace('rgb', 'rgba');
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+        }
+        
+        // Initialize particles
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < particleDensity; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        initParticles();
+        
+        // Clock update
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            
+            clockEl.textContent = `${hours}:${minutes}:${seconds}`;
+            
+            const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+            const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${days[now.getDay()]}`;
+            dateEl.textContent = dateStr;
+            
+            // Update color
+            const mode = colorModes[currentMode];
+            clockEl.style.color = mode.primary;
+        }
+        
+        // Draw background
+        function drawBackground() {
+            const mode = colorModes[currentMode];
+            
+            // Clear with trail effect
+            bgCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            bgCtx.fillRect(0, 0, width, height);
+            
+            // Draw central glow
+            const gradient = bgCtx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, Math.min(width, height) * 0.5
+            );
+            gradient.addColorStop(0, mode.bg);
+            gradient.addColorStop(1, 'transparent');
+            bgCtx.fillStyle = gradient;
+            bgCtx.fillRect(0, 0, width, height);
+            
+            // Draw grid lines
+            bgCtx.strokeStyle = `rgba(255, 255, 255, 0.03)`;
+            bgCtx.lineWidth = 1;
+            
+            const gridSize = 50;
+            for (let x = 0; x < width; x += gridSize) {
+                bgCtx.beginPath();
+                bgCtx.moveTo(x, 0);
+                bgCtx.lineTo(x, height);
+                bgCtx.stroke();
+            }
+            
+            for (let y = 0; y < height; y += gridSize) {
+                bgCtx.beginPath();
+                bgCtx.moveTo(0, y);
+                bgCtx.lineTo(width, y);
+                bgCtx.stroke();
+            }
+        }
+        
+        // Draw particles
+        function drawParticles() {
+            const mode = colorModes[currentMode];
+            
+            // Clear with fade
+            particleCtx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            particleCtx.fillRect(0, 0, width, height);
+            
+            // Update and draw particles
+            particles = particles.filter(particle => {
+                particle.draw(particleCtx, hexToRgb(mode.secondary));
+                return particle.update();
+            });
+            
+            // Add new particles to maintain density
+            while (particles.length < particleDensity) {
+                particles.push(new Particle());
+            }
+            
+            // Draw ripples
+            ripples = ripples.filter(ripple => {
+                ripple.draw(particleCtx, hexToRgb(mode.primary));
+                return ripple.update();
+            });
+        }
+        
+        // Helper: hex to rgb
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result 
+                ? `rgb(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)})`
+                : 'rgb(255, 255, 255)';
+        }
+        
+        // Draw analog clock overlay
+        function drawAnalogClock() {
+            const mode = colorModes[currentMode];
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(width, height) * 0.3;
+            
+            const now = new Date();
+            const seconds = now.getSeconds() + now.getMilliseconds() / 1000;
+            const minutes = now.getMinutes() + seconds / 60;
+            const hours = now.getHours() + minutes / 60;
+            
+            bgCtx.save();
+            bgCtx.translate(centerX, centerY);
+            
+            // Draw clock face
+            bgCtx.beginPath();
+            bgCtx.arc(0, 0, radius, 0, TWO_PI);
+            bgCtx.strokeStyle = hexToRgb(mode.primary).replace('rgb', 'rgba').replace(')', ', 0.2)');
+            bgCtx.lineWidth = 2;
+            bgCtx.stroke();
+            
+            // Draw hour markers
+            for (let i = 0; i < 12; i++) {
+                const angle = (i / 12) * TWO_PI - PI / 2;
+                const x1 = Math.cos(angle) * (radius - 10);
+                const y1 = Math.sin(angle) * (radius - 10);
+                const x2 = Math.cos(angle) * (radius - 3);
+                const y2 = Math.sin(angle) * (radius - 3);
+                
+                bgCtx.beginPath();
+                bgCtx.moveTo(x1, y1);
+                bgCtx.lineTo(x2, y2);
+                bgCtx.strokeStyle = hexToRgb(mode.primary).replace('rgb', 'rgba').replace(')', ', 0.5)');
+                bgCtx.lineWidth = i % 3 === 0 ? 3 : 1;
+                bgCtx.stroke();
+            }
+            
+            // Draw hands
+            // Hour hand
+            drawHand(bgCtx, (hours / 12) * TWO_PI - PI / 2, radius * 0.5, 6, mode.primary);
+            
+            // Minute hand
+            drawHand(bgCtx, (minutes / 60) * TWO_PI - PI / 2, radius * 0.7, 4, mode.primary);
+            
+            // Second hand
+            drawHand(bgCtx, (seconds / 60) * TWO_PI - PI / 2, radius * 0.8, 2, mode.secondary);
+            
+            // Center dot
+            bgCtx.beginPath();
+            bgCtx.arc(0, 0, 5, 0, TWO_PI);
+            bgCtx.fillStyle = mode.primary;
+            bgCtx.fill();
+            
+            bgCtx.restore();
+        }
+        
+        function drawHand(ctx, angle, length, width, color) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(angle) * length, Math.sin(angle) * length);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = color;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+        
+        // Event listeners
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        
+        bgCanvas.addEventListener('click', (e) => {
+            currentMode = (currentMode + 1) % colorModes.length;
+            modeIndicator.textContent = `模式: ${colorModes[currentMode].name}`;
+        });
+        
+        bgCanvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+        
+        bgCanvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        bgCanvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastMouseX;
+                const dy = e.clientY - lastMouseY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 20) {
+                    ripples.push(new Ripple(e.clientX, e.clientY));
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                }
+            }
+        });
+        
+        bgCanvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            particleDensity = Math.max(10, Math.min(200, particleDensity + Math.sign(e.deltaY) * 10));
+        }, { passive: false });
+        
+        // Touch support
+        bgCanvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            ripples.push(new Ripple(touch.clientX, touch.clientY));
+        });
+        
+        bgCanvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            ripples.push(new Ripple(touch.clientX, touch.clientY));
+        }, { passive: false });
+        
+        window.addEventListener('resize', () => {
+            width = bgCanvas.width = particleCanvas.width = window.innerWidth;
+            height = bgCanvas.height = particleCanvas.height = window.innerHeight;
+            initParticles();
+        });
+        
+        // Animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            frameCount++;
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime);
+            }
+            
+            // Update clock
+            updateClock();
+            
+            // Draw background
+            drawBackground();
+            
+            // Draw analog clock
+            drawAnalogClock();
+            
+            // Draw particles
+            drawParticles();
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Start animation
+        updateClock();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
