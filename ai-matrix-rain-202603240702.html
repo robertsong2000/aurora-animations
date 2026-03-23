@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矩阵雨 - Matrix Rain</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 65, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(0, 255, 65, 0.6);
+            font-family: 'Courier New', monospace;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 65, 0.9);
+            font-size: 36px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(0, 255, 65, 0.8);
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+            animation: glitch 2s infinite;
+        }
+        
+        @keyframes glitch {
+            0%, 90%, 100% { 
+                opacity: 1;
+                transform: translateX(-50%);
+            }
+            92% {
+                opacity: 0.8;
+                transform: translateX(-48%);
+            }
+            94% {
+                opacity: 0.9;
+                transform: translateX(-52%);
+            }
+            96% {
+                opacity: 0.7;
+                transform: translateX(-49%);
+            }
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 65, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 24px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">MATRIX RAIN</div>
+    <canvas id="matrix"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 扭曲矩阵</div>
+        <div>👆 点击 - 涟漪波动</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let mouseX = -1000, mouseY = -1000;
+        
+        // 矩阵字符集（日语片假名 + 数字 + 符号）
+        const KATAKANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+        const NUMBERS = '0123456789';
+        const SYMBOLS = '+-×÷=<>{}[]|\\/';
+        const CHARS = KATAKANA + NUMBERS + SYMBOLS;
+        
+        // 矩阵列配置
+        let columns = [];
+        const FONT_SIZE = 16;
+        let columnCount;
+        
+        // 涟漪效果
+        let ripples = [];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            columnCount = Math.floor(width / FONT_SIZE);
+            
+            // 重新初始化列
+            initColumns();
+        }
+        
+        // 初始化矩阵列
+        function initColumns() {
+            columns = [];
+            for (let i = 0; i < columnCount; i++) {
+                columns.push({
+                    x: i * FONT_SIZE,
+                    y: Math.random() * height, // 随机起始位置
+                    speed: Math.random() * 2 + 1, // 下落速度
+                    chars: [], // 当前列的字符
+                    length: Math.floor(Math.random() * 15) + 10, // 列长度
+                    opacity: Math.random() * 0.5 + 0.5, // 基础透明度
+                    changeRate: Math.random() * 0.05, // 字符变化频率
+                    lastChange: 0,
+                });
+                
+                // 初始化字符
+                for (let j = 0; j < columns[i].length; j++) {
+                    columns[i].chars.push(getRandomChar());
+                }
+            }
+        }
+        
+        // 获取随机字符
+        function getRandomChar() {
+            return CHARS[Math.floor(Math.random() * CHARS.length)];
+        }
+        
+        // 添加涟漪
+        function addRipple(x, y) {
+            ripples.push({
+                x: x,
+                y: y,
+                radius: 0,
+                maxRadius: 300,
+                speed: 8,
+                life: 1.0,
+            });
+        }
+        
+        // 更新涟漪
+        function updateRipples() {
+            ripples = ripples.filter(ripple => {
+                ripple.radius += ripple.speed;
+                ripple.life = 1 - (ripple.radius / ripple.maxRadius);
+                return ripple.life > 0;
+            });
+        }
+        
+        // 应用涟漪效果到列
+        function applyRippleEffect(column) {
+            let totalOffset = 0;
+            
+            ripples.forEach(ripple => {
+                const dx = column.x - ripple.x;
+                const dy = column.y - ripple.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // 在涟漪范围内的列被推动
+                if (Math.abs(dist - ripple.radius) < 50) {
+                    const strength = (1 - Math.abs(dist - ripple.radius) / 50) * ripple.life;
+                    const angle = Math.atan2(dy, dx);
+                    totalOffset += Math.sin(angle) * strength * 50;
+                }
+            });
+            
+            return totalOffset;
+        }
+        
+        // 应用鼠标扭曲效果
+        function applyMouseEffect(column) {
+            const dx = column.x - mouseX;
+            const dy = column.y - mouseY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < 200) {
+                const strength = (200 - dist) / 200;
+                return {
+                    speedBoost: strength * 3,
+                    opacityBoost: strength * 0.3,
+                    xOffset: (dx / dist) * strength * 30,
+                };
+            }
+            
+            return { speedBoost: 0, opacityBoost: 0, xOffset: 0 };
+        }
+        
+        // 绘制单列矩阵
+        function drawColumn(column, currentTime) {
+            const mouseEffect = applyMouseEffect(column);
+            const rippleOffset = applyRippleEffect(column);
+            
+            const speed = column.speed + mouseEffect.speedBoost;
+            const baseOpacity = column.opacity + mouseEffect.opacityBoost;
+            
+            // 更新位置
+            column.y += speed;
+            
+            // 如果列完全离开屏幕，重置到顶部
+            if (column.y - column.length * FONT_SIZE > height) {
+                column.y = -column.length * FONT_SIZE;
+                column.speed = Math.random() * 2 + 1;
+                column.length = Math.floor(Math.random() * 15) + 10;
+            }
+            
+            // 字符变化
+            if (currentTime - column.lastChange > column.changeRate * 1000) {
+                const changeIndex = Math.floor(Math.random() * column.chars.length);
+                column.chars[changeIndex] = getRandomChar();
+                column.lastChange = currentTime;
+            }
+            
+            // 绘制字符
+            for (let i = 0; i < column.length; i++) {
+                const charY = column.y - i * FONT_SIZE + rippleOffset;
+                const charX = column.x + mouseEffect.xOffset;
+                
+                // 只绘制在屏幕内的字符
+                if (charY < -FONT_SIZE || charY > height + FONT_SIZE) continue;
+                
+                // 透明度渐变（头部最亮，尾部最暗）
+                const fadeRatio = i / column.length;
+                const opacity = baseOpacity * (1 - fadeRatio * 0.8);
+                
+                // 头部字符特别亮（白色/浅绿）
+                if (i === 0) {
+                    ctx.fillStyle = `rgba(200, 255, 200, ${opacity})`;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = 'rgba(0, 255, 65, 0.8)';
+                } else {
+                    ctx.fillStyle = `rgba(0, 255, 65, ${opacity})`;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = 'rgba(0, 255, 65, 0.5)';
+                }
+                
+                ctx.font = `${FONT_SIZE}px Courier New`;
+                ctx.fillText(column.chars[i], charX, charY);
+            }
+            
+            ctx.shadowBlur = 0;
+        }
+        
+        // 绘制涟漪可视化
+        function drawRipples() {
+            ripples.forEach(ripple => {
+                ctx.strokeStyle = `rgba(0, 255, 65, ${ripple.life * 0.3})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 1000;
+            
+            // 半透明清除（产生拖尾效果）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 更新涟漪
+            updateRipples();
+            
+            // 绘制所有列
+            columns.forEach(column => {
+                drawColumn(column, currentTime);
+            });
+            
+            // 绘制涟漪
+            drawRipples();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            mouseX = -1000;
+            mouseY = -1000;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            addRipple(e.clientX, e.clientY);
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            addRipple(e.touches[0].clientX, e.touches[0].clientY);
+        });
+        
+        // 初始化
+        resize();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
