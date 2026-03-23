@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火焰效果 | Fire Effect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff6b35;
+            font-size: 36px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            text-shadow: 
+                0 0 20px rgba(255, 107, 53, 0.6),
+                0 0 30px rgba(255, 69, 0, 0.4);
+            animation: flicker 3s ease-in-out infinite;
+        }
+        
+        @keyframes flicker {
+            0%, 100% { opacity: 1; text-shadow: 0 0 15px rgba(255, 107, 53, 0.4); }
+            50% { opacity: 0.7; text-shadow: 0 0 20px rgba(255, 69, 0, 0.5); }
+        }
+        
+        .controls {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .control-btn {
+            padding: 10px 20px;
+            background: rgba(255, 107, 53, 0.2);
+            border: 1px solid rgba(255, 107, 53, 0.5);
+            color: rgba(255, 107, 53, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: all 0.3s;
+            letter-spacing: 1px;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 107, 53, 0.3);
+            box-shadow: 0 0 20px rgba(255, 107, 53, 0.5);
+        }
+        
+        .control-btn.active {
+            background: rgba(255, 107, 53, 0.4);
+            box-shadow: 0 0 30px rgba(255, 107, 53, 0.7);
+        }
+        
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 107, 53, 0.7);
+            font-size: 11px;
+            z-index: 10;
+            pointer-events: none;
+            line-height: 1.6;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 107, 53, 0.6);
+            font-size: 12px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div class="title">FIRE</div>
+    <div class="stats" id="stats"></div>
+    <canvas id="fire"></canvas>
+    <div class="info">点击创建火焰 · 滖轮调整火焰强度</div>
+    <div class="controls">
+        <button class="control-btn active" id="campfireBtn">篝火</button>
+        <button class="control-btn" id="torchBtn">火把</button>
+        <button class="control-btn" id="infernoBtn">地狱火</button>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('fire');
+        const ctx = canvas.getContext('2d');
+        const statsEl = document.getElementById('stats');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // Fire system
+        class FireParticle {
+            constructor(x, y) {
+                this.x = x + Math.random() * 2 - 4;
+                this.y = y + Math.random() * 2;
+                this.vx = (Math.random() - 0.5) * 3
+                this.vy = (Math.random() - 0.5) * 3
+                this.life = 1
+                this.decay = 0.01 + Math.random() * 0.02
+                this.size = 3 + Math.random() * 4
+                this.color = `hsl(${Math.floor(Math.random() * 60 + 20)}, 255, ${Math.floor(Math.random() * 20)}%)`
+ 100%)`
+                this.baseY = y
+            }
+        }
+        
+        update() {
+            this.x += this.vx
+            this.y += this.vy
+            
+            this.life -= this.decay
+            
+            
+            return this.life > 0
+        }
+        
+        draw(ctx) {
+            if (!this.isEmber) return
+            
+            
+            // Draw ember glow
+            const gradient = ctx.createRadialGradient(
+                this.x, this.y, this.size * 1.5,
+                this.x, this.y, this.size * 2
+            )
+            gradient.addColorStop(0, this.color)
+            gradient.addColorStop(1, 'rgba(255, 107, 53, 0)')
+            ctx.fillStyle = gradient
+            ctx.beginPath()
+            ctx.arc(this.x, this.y, this.size * 2, 0, TWO_PI)
+            ctx.fill()
+            
+            // Draw particle
+            ctx.beginPath()
+            ctx.arc(this.x, this.y, this.size, 0, TWO_PI)
+            ctx.fillStyle = this.color
+            ctx.fill()
+        }
+    }
+        
+        // Smoke system
+        class Smoke {
+            constructor(x, y) {
+                this.x = x
+                this.y = y
+                this.particles = []
+                this.maxParticles = 100
+                this.life = 1
+                
+                for (let i = 0; i < 50; i++) {
+                    this.particles.push(new SmokeParticle(x, y))
+                }
+            }
+        }
+        
+        update() {
+            this.life -= 0.01
+            
+            
+            return this.life > 0
+        }
+        
+        draw(ctx) {
+            const gradient = ctx.createRadialGradient(
+                this.x, this.y, this.size,
+                this.x, this.y, this.size * 1.5
+            )
+            gradient.addColorStop(0, 'rgba(255, 100, 0, 0.8)')
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+            
+            ctx.fillStyle = gradient
+            ctx.beginPath()
+            ctx.arc(this.x, this.y, this.size, 1.5, 0, TWO_PI)
+            ctx.fill()
+        }
+    }
+        
+        // Ember particle class
+        class EmberParticle {
+            constructor(x, y, color) {
+                this.x = x
+                this.y = y
+                this.vx = (Math.random() - 1) * 4
+                this.vy = -Math.random() - 1) * 4
+                this.life = 1
+                this.color = color
+                this.size = 2
+                this.angle = Math.random() * TWO_PI
+            }
+            
+            update() {
+                this.x += this.vx
+                this.y += this.vy
+                this.life -= 0.02
+                
+                return this.life > 0
+            }
+            
+            draw(ctx) {
+                if (this.life > 0.5) {
+                    ctx.globalAlpha = this.life
+                    ctx.beginPath()
+                    ctx.arc(this.x, this.y, this.size, 0, TWO_PI)
+                    ctx.fillStyle = this.color
+                    ctx.fill()
+                    
+                    // Glow effect
+                    ctx.beginPath()
+                    ctx.arc(this.x, this.y, this.size * 3, 0, TWO_PI)
+                    const glowGradient = ctx.createRadialGradient(
+                        this.x, this.y, this.size,
+                        this.x, this.y, this.size * 3
+                    )
+                    glowGradient.addColorStop(0, this.color)
+                    glowGradient.addColorStop(1, 'transparent')
+                    ctx.fillStyle = glowGradient
+                    ctx.fill()
+                }
+            }
+        }
+    }
+        
+        // Initialize fire
+        function initFire() {
+            // Create initial embers
+            for (let i = 0; i < 100; i++) {
+                embers.push(new EmberParticle(
+                    Math.random() * width,
+                    Math.random() * height *                    mode === 'campfire' ? `hsl(${Math.floor(Math.random() * 60)}, 100%, 60%, 1)` : 'campfire'
+ : `hsl(${Math.floor(Math.random() * 60)}, 100%, 60%, 1)`,
+                    color: `hsl(${Math.floor(Math.random() * 60)}, 100%, 60%, 1)`
+                )
+            }
+        }
+        
+        initFire()
+        
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            // Add new flame
+            const x = e.clientX
+            const y = e.clientY
+            for (let i = 0; i < 20; i++) {
+                flames.push(new Flame(
+                    x + (Math.random() - 0.5) * 100,
+                    y + (Math.random() - 0.5) * 100
+                ))
+            }
+        })
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX
+            mouseY = e.clientY
+        })
+        
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault()
+            fireIntensity = Math.max(0.1, Math.min(2, fireIntensity + e.deltaY * 0.01)
+        }, { passive: false })
+        
+        // Mode buttons
+        document.getElementById('campfireBtn').addEventListener('click', () => setMode('campfire'))
+        document.getElementById('torchBtn').addEventListener('click', () => setMode('torch'))
+        document.getElementById('infernoBtn').addEventListener('click', () => setMode('inferno'))
+        
+        function setMode(newMode) {
+            mode = newMode
+            document.getElementById('campfireBtn').classList.toggle('active', newMode === 'campfire')
+            document.getElementById('torchBtn').classList.toggle('active', newMode === 'torch')
+            document.getElementById('infernoBtn').classList.toggle('active', newMode === 'inferno')
+            
+            // Reset fire
+            flames = []
+            initFire()
+        }
+        
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth
+            height = canvas.height = window.innerHeight
+            initFire()
+        })
+        
+        // Main animation loop
+        let lastTime = performance.now()
+        let frameCount = 0
+        let fps = 60
+        
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime
+            lastTime = currentTime
+            
+            frameCount++
+            if (frameCount % 30 === 0) {
+                fps = Math.round(1000 / deltaTime)
+            }
+            
+            // Clear
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+            ctx.fillRect(0, 0, width, height)
+            
+            // Update and draw embers
+            const dt = deltaTime / 16
+            embers.forEach(ember => {
+                ember.update(dt)
+                ember.draw(ctx)
+            })
+            
+            // Update and draw flames
+            flames = flames.filter(flame => {
+                flame.update()
+                flame.draw(ctx)
+                return flame.life > 0
+            })
+            
+            // Update stats
+            statsEl.innerHTML = `
+                FPS: ${fps}<br>
+                Embers: ${embers.length}<br>
+                Flames: ${flames.length}<br>
+                Intensity: ${fireIntensity.toFixed(2)}x
+            `
+            
+            requestAnimationFrame(animate)
+        }
+        
+        // Start animation
+        requestAnimationFrame(animate)
+    </script>
+</body>
+</html>
