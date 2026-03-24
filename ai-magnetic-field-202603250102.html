@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>磁力线 - Magnetic Field Lines</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+            letter-spacing: 5px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 20px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">🧲 磁力线</div>
+    <canvas id="magneticfield"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 控制磁场强度</div>
+        <div>👆 点击 - 添加磁极</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('magneticfield');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let mouseX = 0, mouseY = 0;
+        
+        // 粒子系统
+        const PARTICLE_COUNT = 300;
+        let particles = [];
+        
+        // 磁极系统
+        let magneticPoles = [];
+        const MAX_POLES = 4;
+        
+        // 颜色配置
+        const COLORS = {
+            positive: 'rgba(255, 50, 50,',
+            negative: 'rgba(50, 50, 255,',
+        };
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            initMagneticField();
+        }
+        
+        // 初始化磁场
+        function initMagneticField() {
+            // 创建初始N极和S极
+            magneticPoles = [
+                { x: width * 0.3, y: centerY, type: 'positive', strength: 5000 },
+                { x: width * 0.7, y: centerY, type: 'negative', strength: 5000 }
+            ];
+            
+            initParticles();
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                particles.push(createParticle());
+            }
+        }
+        
+        // 创建粒子
+        function createParticle() {
+            const startPole = magneticPoles[Math.floor(Math.random() * magneticPoles.length)];
+            const angle = Math.random() * Math.PI * 2;
+            const distance = Math.random() * 20 + 10;
+            
+            return {
+                x: startPole.x + Math.cos(angle) * distance,
+                y: startPole.y + Math.sin(angle) * distance,
+                size: Math.random() * 2 + 1,
+                alpha: 0.5 + Math.random() * 0.5,
+                color: startPole.type === 'positive' ? COLORS.positive : COLORS.negative,
+                life: 1,
+            };
+        }
+        
+        // 计算磁场方向和强度
+        function calculateMagneticField(x, y) {
+            let fx = 0, fy = 0;
+            
+            magneticPoles.forEach(pole => {
+                const dx = pole.x - x;
+                const dy = pole.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 10) {
+                    const force = pole.strength / (dist * dist);
+                    const angle = Math.atan2(dy, dx);
+                    
+                    if (pole.type === 'positive') {
+                        fx += Math.cos(angle) * force;
+                        fy += Math.sin(angle) * force;
+                    } else {
+                        fx -= Math.cos(angle) * force;
+                        fy -= Math.sin(angle) * force;
+                    }
+                }
+            });
+            
+            return { fx, fy };
+        }
+        
+        // 更新粒子
+        function updateParticles() {
+            const mouseInfluence = ((mouseX - centerX) / width) * 0.5;
+            
+            particles.forEach((particle, index) => {
+                // 计算磁场影响
+                const field = calculateMagneticField(particle.x, particle.y);
+                const magnitude = Math.sqrt(field.fx * field.fx + field.fy * field.fy);
+                
+                if (magnitude > 0.1) {
+                    // 沿磁场方向移动
+                    const speed = 2 + mouseInfluence;
+                    particle.x += (field.fx / magnitude) * speed;
+                    particle.y += (field.fy / magnitude) * speed;
+                }
+                
+                // 生命周期衰减
+                particle.life -= 0.005;
+                
+                // 重生粒子
+                if (particle.life <= 0 || particle.x < 0 || particle.x > width || particle.y < 0 || particle.y > height) {
+                    particles[index] = createParticle();
+                }
+            });
+        }
+        
+        // 绘制粒子
+        function drawParticles() {
+            particles.forEach(particle => {
+                ctx.save();
+                ctx.fillStyle = particle.color + (particle.alpha * particle.life) + ')';
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = particle.color + '0.8)';
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+        
+        // 绘制磁极
+        function drawMagneticPoles() {
+            magneticPoles.forEach(pole => {
+                // 磁场范围
+                const gradient = ctx.createRadialGradient(
+                    pole.x, pole.y, 0,
+                    pole.x, pole.y, 100
+                );
+                
+                const color = pole.type === 'positive' ? 'rgba(255, 50, 50,' : 'rgba(50, 50, 255,';
+                gradient.addColorStop(0, color + '0.3)');
+                gradient.addColorStop(1, color + '0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(pole.x, pole.y, 100, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 磁极核心
+                ctx.save();
+                ctx.fillStyle = pole.type === 'positive' ? '#ff3232' : '#3232ff';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = pole.type === 'positive' ? 'rgba(255, 50, 50, 0.8)' : 'rgba(50, 50, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(pole.x, pole.y, 15, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 磁极标识
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 20px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(pole.type === 'positive' ? 'N' : 'S', pole.x, pole.y);
+                ctx.restore();
+            });
+        }
+        
+        // 绘制磁场线（可视化）
+        function drawFieldLines() {
+            const step = 30;
+            ctx.save();
+            
+            for (let x = 0; x < width; x += step) {
+                for (let y = 0; y < height; y += step) {
+                    const field = calculateMagneticField(x, y);
+                    const magnitude = Math.sqrt(field.fx * field.fx + field.fy * field.fy);
+                    
+                    if (magnitude > 0.1) {
+                        const angle = Math.atan2(field.fy, field.fx);
+                        const length = Math.min(magnitude * 5, 15);
+                        
+                        ctx.strokeStyle = `rgba(0, 255, 255, ${Math.min(magnitude * 0.1, 0.3)})`;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            ctx.restore();
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 10, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制磁场线（背景）
+            drawFieldLines();
+            
+            // 更新和绘制
+            updateParticles();
+            drawMagneticPoles();
+            drawParticles();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            if (magneticPoles.length >= MAX_POLES) {
+                magneticPoles.shift();
+            }
+            
+            magneticPoles.push({
+                x: e.clientX,
+                y: e.clientY,
+                type: magneticPoles.length % 2 === 0 ? 'positive' : 'negative',
+                strength: 5000,
+            });
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (magneticPoles.length >= MAX_POLES) {
+                magneticPoles.shift();
+            }
+            
+            magneticPoles.push({
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+                type: magneticPoles.length % 2 === 0 ? 'positive' : 'negative',
+                strength: 5000,
+            });
+        });
+        
+        // 初始化
+        resize();
+        mouseX = centerX;
+        mouseY = centerY;
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
