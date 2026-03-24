@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心电图 - Heartbeat Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 100, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(0, 255, 100, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 100, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(0, 255, 100, 0.8);
+            letter-spacing: 5px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 100, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        .bpm {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(0, 255, 100, 0.9);
+            font-size: 48px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(0, 255, 100, 0.8);
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 20px;
+                top: 15px;
+            }
+            .bpm {
+                font-size: 32px;
+                top: 50px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">💓 心电图</div>
+    <canvas id="ecg"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 调整心率</div>
+        <div>👆 点击 - 心跳加速</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    <div class="bpm" id="bpm">72 BPM</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        const bpmElement = document.getElementById('bpm');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('ecg');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        
+        // 心电图配置
+        const ECG_LINES = 3;
+        let ecgData = [];
+        let currentX = 0;
+        let baseHeartRate = 72;
+        let heartRate = 72;
+        let beatTimer = 0;
+        
+        // 颜色配置
+        const COLORS = [
+            'rgba(0, 255, 100,',
+            'rgba(255, 100, 100,',
+            'rgba(100, 100, 255,',
+        ];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initECG();
+        }
+        
+        // 初始化心电图
+        function initECG() {
+            ecgData = [];
+            currentX = 0;
+            
+            for (let i = 0; i < ECG_LINES; i++) {
+                const data = {
+                    points: [],
+                    color: COLORS[i],
+                    yOffset: (height / (ECG_LINES + 1)) * (i + 1),
+                    amplitude: 50,
+                    phase: i * 0.3,
+                };
+                
+                // 初始化数据点
+                for (let x = 0; x < width; x++) {
+                    data.points.push(0);
+                }
+                
+                ecgData.push(data);
+            }
+        }
+        
+        // 生成PQRST波形
+        function generatePQRST(phase) {
+            const t = phase % 1;
+            
+            // P波（小波峰）
+            if (t < 0.1) {
+                return Math.sin(t * Math.PI * 10) * 0.15;
+            }
+            // PR段（平直）
+            else if (t < 0.15) {
+                return 0;
+            }
+            // Q波（小下降）
+            else if (t < 0.18) {
+                return -(t - 0.15) * 3;
+            }
+            // R波（大尖峰）
+            else if (t < 0.22) {
+                return Math.sin((t - 0.18) * Math.PI * 12.5) * 1;
+            }
+            // S波（小下降）
+            else if (t < 0.25) {
+                return -Math.sin((t - 0.22) * Math.PI * 16.7) * 0.2;
+            }
+            // ST段（平直）
+            else if (t < 0.35) {
+                return 0;
+            }
+            // T波（中等波峰）
+            else if (t < 0.5) {
+                return Math.sin((t - 0.35) * Math.PI * 6.67) * 0.3;
+            }
+            // 基线
+            else {
+                return 0;
+            }
+        }
+        
+        // 更新心电图
+        function updateECG() {
+            // 心率影响
+            beatTimer += (heartRate / 60) / 60;
+            
+            // 鼠标影响心率
+            const mouseInfluence = ((mouseY / height) - 0.5) * 40;
+            heartRate = baseHeartRate + mouseInfluence;
+            heartRate = Math.max(40, Math.min(180, heartRate));
+            
+            // 更新BPM显示
+            bpmElement.textContent = `${Math.round(heartRate)} BPM`;
+            
+            // 添加新数据点
+            ecgData.forEach((data, index) => {
+                const phase = beatTimer + data.phase;
+                const value = generatePQRST(phase) * data.amplitude;
+                
+                // 移除最旧的点
+                data.points.shift();
+                // 添加新点
+                data.points.push(value);
+            });
+        }
+        
+        // 绘制网格
+        function drawGrid() {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 255, 100, 0.1)';
+            ctx.lineWidth = 1;
+            
+            // 垂直线
+            const vStep = 20;
+            for (let x = 0; x < width; x += vStep) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            
+            // 水平线
+            const hStep = 20;
+            for (let y = 0; y < height; y += hStep) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            
+            // 粗网格线
+            ctx.strokeStyle = 'rgba(0, 255, 100, 0.2)';
+            ctx.lineWidth = 2;
+            
+            for (let x = 0; x < width; x += vStep * 5) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            
+            for (let y = 0; y < height; y += hStep * 5) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+        
+        // 绘制心电图线
+        function drawECGLines() {
+            ecgData.forEach(data => {
+                ctx.save();
+                ctx.strokeStyle = data.color + '0.9)';
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = data.color + '0.8)';
+                ctx.beginPath();
+                
+                data.points.forEach((value, index) => {
+                    const x = index;
+                    const y = data.yOffset + value;
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                
+                ctx.stroke();
+                ctx.restore();
+            });
+        }
+        
+        // 绘制扫描线
+        function drawScanLine() {
+            const scanX = currentX % width;
+            
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 255, 100, 0.1)';
+            ctx.fillRect(scanX - 50, 0, 100, height);
+            ctx.restore();
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制网格
+            drawGrid();
+            
+            // 更新和绘制
+            updateECG();
+            drawECGLines();
+            drawScanLine();
+            
+            currentX += 2;
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', () => {
+            heartRate = Math.min(heartRate + 20, 180);
+            baseHeartRate = heartRate;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            heartRate = Math.min(heartRate + 20, 180);
+            baseHeartRate = heartRate;
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
