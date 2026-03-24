@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水波纹 - Water Ripple</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(180deg, #0a2a4a 0%, #1a4a6a 50%, #2a5a7a 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 200, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(50, 150, 255, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(150, 220, 255, 0.9);
+            font-size: 36px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(100, 200, 255, 0.8);
+            letter-spacing: 8px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(150, 200, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 24px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">💧 水波纹</div>
+    <canvas id="ripple"></canvas>
+    <div class="info">
+        <div>🖱️ 点击 - 产生波纹</div>
+        <div>👆 按住拖动 - 连续波纹</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('ripple');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let isMouseDown = false;
+        let mouseX = 0, mouseY = 0;
+        let lastRippleTime = 0;
+        
+        // 涟漪系统
+        let ripples = [];
+        const MAX_RIPPLES = 20;
+        
+        // 水滴系统
+        let droplets = [];
+        const MAX_DROPLETS = 50;
+        
+        // 颜色配置
+        const RIPPLE_COLORS = [
+            'rgba(100, 200, 255, 0.6)',
+            'rgba(150, 220, 255, 0.5)',
+            'rgba(200, 240, 255, 0.4)',
+        ];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        // 创建涟漪
+        function createRipple(x, y, strength = 1) {
+            if (ripples.length >= MAX_RIPPLES) {
+                ripples.shift();
+            }
+            
+            ripples.push({
+                x: x,
+                y: y,
+                radius: 0,
+                maxRadius: 200 * strength,
+                speed: 3 * strength,
+                alpha: 0.8,
+                decay: 0.008,
+                lineWidth: 3 * strength,
+                color: RIPPLE_COLORS[Math.floor(Math.random() * RIPPLE_COLORS.length)],
+            });
+        }
+        
+        // 创建水滴（自动下落）
+        function createDroplet() {
+            if (droplets.length >= MAX_DROPLETS) {
+                droplets.shift();
+            }
+            
+            droplets.push({
+                x: Math.random() * width,
+                y: -10,
+                vy: 2 + Math.random() * 3,
+                size: 3 + Math.random() * 3,
+                alpha: 0.6 + Math.random() * 0.4,
+            });
+        }
+        
+        // 更新涟漪
+        function updateRipples() {
+            ripples = ripples.filter(ripple => {
+                ripple.radius += ripple.speed;
+                ripple.alpha -= ripple.decay;
+                return ripple.alpha > 0;
+            });
+        }
+        
+        // 更新水滴
+        function updateDroplets() {
+            droplets = droplets.filter(droplet => {
+                droplet.y += droplet.vy;
+                droplet.vy += 0.1; // 重力
+                
+                // 水滴到达水面
+                if (droplet.y >= centerY) {
+                    createRipple(droplet.x, droplet.y, 0.5);
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 绘制水面反射
+        function drawWaterSurface() {
+            const gradient = ctx.createLinearGradient(0, centerY - 50, 0, height);
+            gradient.addColorStop(0, 'rgba(20, 60, 100, 0.1)');
+            gradient.addColorStop(0.3, 'rgba(30, 80, 120, 0.3)');
+            gradient.addColorStop(1, 'rgba(40, 100, 140, 0.5)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, centerY - 50, width, height - centerY + 50);
+        }
+        
+        // 绘制涟漪
+        function drawRipples() {
+            ctx.save();
+            
+            ripples.forEach(ripple => {
+                ctx.strokeStyle = ripple.color;
+                ctx.lineWidth = ripple.lineWidth;
+                ctx.globalAlpha = ripple.alpha;
+                
+                ctx.beginPath();
+                ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 内圈（更亮）
+                if (ripple.radius > 10) {
+                    ctx.globalAlpha = ripple.alpha * 0.5;
+                    ctx.lineWidth = ripple.lineWidth * 0.5;
+                    ctx.beginPath();
+                    ctx.arc(ripple.x, ripple.y, ripple.radius * 0.7, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+            
+            ctx.restore();
+        }
+        
+        // 绘制水滴
+        function drawDroplets() {
+            ctx.save();
+            
+            droplets.forEach(droplet => {
+                const gradient = ctx.createRadialGradient(
+                    droplet.x, droplet.y, 0,
+                    droplet.x, droplet.y, droplet.size
+                );
+                gradient.addColorStop(0, `rgba(200, 240, 255, ${droplet.alpha})`);
+                gradient.addColorStop(1, `rgba(100, 200, 255, 0)`);
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(droplet.x, droplet.y, droplet.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            ctx.restore();
+        }
+        
+        // 绘制背景光晕
+        function drawBackgroundGlow() {
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height) * 0.8
+            );
+            gradient.addColorStop(0, 'rgba(50, 100, 150, 0.2)');
+            gradient.addColorStop(0.5, 'rgba(30, 60, 100, 0.1)');
+            gradient.addColorStop(1, 'rgba(10, 20, 40, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const time = currentTime * 0.001;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 42, 74, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制背景光晕
+            drawBackgroundGlow();
+            
+            // 绘制水面
+            drawWaterSurface();
+            
+            // 自动生成水滴
+            if (Math.random() < 0.05) {
+                createDroplet();
+            }
+            
+            // 如果鼠标按下，连续产生涟漪
+            if (isMouseDown && currentTime - lastRippleTime > 100) {
+                createRipple(mouseX, mouseY, 0.8);
+                lastRippleTime = currentTime;
+            }
+            
+            // 更新和绘制
+            updateRipples();
+            updateDroplets();
+            drawRipples();
+            drawDroplets();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            createRipple(e.clientX, e.clientY, 1.2);
+            lastRippleTime = performance.now();
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isMouseDown = true;
+            const touch = e.touches[0];
+            createRipple(touch.clientX, touch.clientY, 1.2);
+            lastRippleTime = performance.now();
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+        
+        canvas.addEventListener('touchend', () => {
+            isMouseDown = false;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+        
+        // 初始化
+        resize();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
