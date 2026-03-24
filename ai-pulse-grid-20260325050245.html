@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>脉冲网格 - Pulse Grid</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0e27;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            cursor: pointer;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            line-height: 1.6;
+            z-index: 100;
+            background: rgba(10, 14, 39, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 18px;
+            color: #00f5ff;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(10, 14, 39, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 150px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #00f5ff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #00f5ff 0%, #0080ff 100%);
+            border: none;
+            border-radius: 5px;
+            color: #0a0e27;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 245, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>⚡ 脉冲网格</h3>
+        <div>网格点数: <span id="gridCount">0</span></div>
+        <div>脉冲数量: <span id="pulseCount">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>网格密度:</label>
+            <input type="range" id="gridDensity" min="10" max="60" value="30">
+            <span class="value" id="gridDensityValue">30</span>
+        </div>
+        <div class="control-item">
+            <label>脉冲速度:</label>
+            <input type="range" id="pulseSpeed" min="1" max="10" value="5">
+            <span class="value" id="pulseSpeedValue">5</span>
+        </div>
+        <div class="control-item">
+            <label>脉冲宽度:</label>
+            <input type="range" id="pulseWidth" min="20" max="200" value="80">
+            <span class="value" id="pulseWidthValue">80</span>
+        </div>
+        <div class="control-item">
+            <label>连线距离:</label>
+            <input type="range" id="connectionDist" min="0" max="100" value="40">
+            <span class="value" id="connectionDistValue">40</span>
+        </div>
+        <button id="autoPulseBtn">自动脉冲</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            gridSpacing: 30,
+            pulseSpeed: 5,
+            pulseWidth: 80,
+            connectionDistance: 40,
+            pointBaseSize: 2,
+            pointMaxSize: 8
+        };
+        
+        // 网格点
+        let gridPoints = [];
+        
+        // 脉冲波
+        let pulses = [];
+        
+        // 自动脉冲
+        let autoPulse = false;
+        let lastAutoPulse = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色主题
+        const colorThemes = [
+            { primary: [0, 245, 255], secondary: [0, 128, 255] },      // 青蓝
+            { primary: [255, 0, 255], secondary: [128, 0, 255] },      // 紫红
+            { primary: [0, 255, 128], secondary: [0, 200, 255] },      // 青绿
+            { primary: [255, 200, 0], secondary: [255, 100, 0] },      // 金橙
+            { primary: [255, 100, 150], secondary: [255, 50, 100] }    // 粉红
+        ];
+        
+        // 网格点类
+        class GridPoint {
+            constructor(x, y, col, row) {
+                this.baseX = x;
+                this.baseY = y;
+                this.x = x;
+                this.y = y;
+                this.col = col;
+                this.row = row;
+                this.size = config.pointBaseSize;
+                this.baseSize = config.pointBaseSize;
+                this.color = [0, 245, 255];
+                this.alpha = 0.3;
+                this.baseAlpha = 0.3;
+                this.offsetX = 0;
+                this.offsetY = 0;
+            }
+            
+            update(pulses) {
+                // 重置到基础状态
+                this.size = this.baseSize;
+                this.alpha = this.baseAlpha;
+                this.color = [0, 245, 255];
+                this.offsetX = 0;
+                this.offsetY = 0;
+                
+                // 计算所有脉冲的影响
+                pulses.forEach(pulse => {
+                    const dx = this.baseX - pulse.x;
+                    const dy = this.baseY - pulse.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // 脉冲波影响范围
+                    const pulseFront = pulse.radius;
+                    const pulseBack = pulse.radius - config.pulseWidth;
+                    
+                    if (distance < pulseFront && distance > pulseBack) {
+                        // 在脉冲波范围内
+                        const wavePosition = (distance - pulseBack) / config.pulseWidth;
+                        const waveIntensity = Math.sin(wavePosition * Math.PI);
+                        
+                        // 点的大小随脉冲波变化
+                        this.size = this.baseSize + waveIntensity * (config.pointMaxSize - this.baseSize);
+                        
+                        // 透明度变化
+                        this.alpha = Math.min(1, this.baseAlpha + waveIntensity * 0.7);
+                        
+                        // 颜色变化（使用脉冲的颜色主题）
+                        const theme = colorThemes[pulse.colorTheme];
+                        const colorBlend = waveIntensity;
+                        this.color[0] = Math.round(0 + theme.primary[0] * colorBlend);
+                        this.color[1] = Math.round(245 * (1 - colorBlend) + theme.primary[1] * colorBlend);
+                        this.color[2] = Math.round(255 * (1 - colorBlend) + theme.primary[2] * colorBlend);
+                        
+                        // 位移效果（远离脉冲中心）
+                        if (distance > 0) {
+                            const pushStrength = waveIntensity * 15;
+                            this.offsetX = (dx / distance) * pushStrength;
+                            this.offsetY = (dy / distance) * pushStrength;
+                        }
+                    }
+                });
+                
+                // 应用位移
+                this.x = this.baseX + this.offsetX;
+                this.y = this.baseY + this.offsetY;
+            }
+            
+            draw() {
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                
+                gradient.addColorStop(0, `rgba(${this.color[0]}, ${this.color[1]}, ${this.color[2]}, ${this.alpha})`);
+                gradient.addColorStop(0.5, `rgba(${this.color[0]}, ${this.color[1]}, ${this.color[2]}, ${this.alpha * 0.3})`);
+                gradient.addColorStop(1, `rgba(${this.color[0]}, ${this.color[1]}, ${this.color[2]}, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心点
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color[0]}, ${this.color[1]}, ${this.color[2]}, ${this.alpha})`;
+                ctx.fill();
+            }
+        }
+        
+        // 脉冲类
+        class Pulse {
+            constructor(x, y, colorTheme = 0) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = Math.max(width, height);
+                this.colorTheme = colorTheme;
+                this.speed = config.pulseSpeed;
+                this.alive = true;
+            }
+            
+            update() {
+                this.radius += this.speed * 2;
+                
+                if (this.radius > this.maxRadius + config.pulseWidth) {
+                    this.alive = false;
+                }
+            }
+            
+            draw() {
+                // 绘制脉冲波纹
+                const theme = colorThemes[this.colorTheme];
+                const alpha = 1 - (this.radius / this.maxRadius);
+                
+                // 外圈
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${theme.primary[0]}, ${theme.primary[1]}, ${theme.primary[2]}, ${alpha * 0.3})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 内圈
+                if (this.radius > config.pulseWidth) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius - config.pulseWidth, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(${theme.secondary[0]}, ${theme.secondary[1]}, ${theme.secondary[2]}, ${alpha * 0.2})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 初始化网格
+        function initGrid() {
+            gridPoints = [];
+            
+            const cols = Math.ceil(width / config.gridSpacing) + 1;
+            const rows = Math.ceil(height / config.gridSpacing) + 1;
+            
+            const offsetX = (width - (cols - 1) * config.gridSpacing) / 2;
+            const offsetY = (height - (rows - 1) * config.gridSpacing) / 2;
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const x = offsetX + col * config.gridSpacing;
+                    const y = offsetY + row * config.gridSpacing;
+                    gridPoints.push(new GridPoint(x, y, col, row));
+                }
+            }
+            
+            document.getElementById('gridCount').textContent = gridPoints.length;
+        }
+        
+        // 绘制连线
+        function drawConnections() {
+            if (config.connectionDistance === 0) return;
+            
+            ctx.strokeStyle = 'rgba(0, 245, 255, 0.1)';
+            ctx.lineWidth = 0.5;
+            
+            for (let i = 0; i < gridPoints.length; i++) {
+                for (let j = i + 1; j < gridPoints.length; j++) {
+                    const p1 = gridPoints[i];
+                    const p2 = gridPoints[j];
+                    
+                    // 只连接相邻的点（优化性能）
+                    if (Math.abs(p1.col - p2.col) <= 1 && Math.abs(p1.row - p2.row) <= 1) {
+                        const dx = p2.x - p1.x;
+                        const dy = p2.y - p1.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < config.gridSpacing * 1.5) {
+                            const alpha = Math.max(p1.alpha, p2.alpha) * 0.3;
+                            const avgColor = [
+                                Math.round((p1.color[0] + p2.color[0]) / 2),
+                                Math.round((p1.color[1] + p2.color[1]) / 2),
+                                Math.round((p1.color[2] + p2.color[2]) / 2)
+                            ];
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(p1.x, p1.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.strokeStyle = `rgba(${avgColor[0]}, ${avgColor[1]}, ${avgColor[2]}, ${alpha})`;
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 自动脉冲
+            if (autoPulse && currentTime - lastAutoPulse > 2000) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const colorTheme = Math.floor(Math.random() * colorThemes.length);
+                pulses.push(new Pulse(x, y, colorTheme));
+                lastAutoPulse = currentTime;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 14, 39, 0.95)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 更新和绘制脉冲
+            pulses = pulses.filter(pulse => pulse.alive);
+            pulses.forEach(pulse => {
+                pulse.update();
+                pulse.draw();
+            });
+            
+            // 更新网格点
+            gridPoints.forEach(point => {
+                point.update(pulses);
+            });
+            
+            // 绘制连线
+            drawConnections();
+            
+            // 绘制网格点
+            gridPoints.forEach(point => {
+                point.draw();
+            });
+            
+            // 更新信息
+            document.getElementById('pulseCount').textContent = pulses.length;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击产生脉冲
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const colorTheme = Math.floor(Math.random() * colorThemes.length);
+            pulses.push(new Pulse(x, y, colorTheme));
+        });
+        
+        // 鼠标交互2：右键删除所有脉冲
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            pulses = [];
+        });
+        
+        // 鼠标移动：悬停效果（持续小脉冲）
+        let lastMouseMove = 0;
+        canvas.addEventListener('mousemove', (e) => {
+            const currentTime = performance.now();
+            if (currentTime - lastMouseMove > 500) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // 添加小脉冲（半径较小，速度较慢）
+                const miniPulse = new Pulse(x, y, Math.floor(Math.random() * colorThemes.length));
+                miniPulse.speed = 2;
+                pulses.push(miniPulse);
+                
+                lastMouseMove = currentTime;
+            }
+        });
+        
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            const colorTheme = Math.floor(Math.random() * colorThemes.length);
+            pulses.push(new Pulse(x, y, colorTheme));
+        });
+        
+        // 控制面板事件
+        document.getElementById('gridDensity').addEventListener('input', (e) => {
+            config.gridSpacing = 70 - parseInt(e.target.value);
+            document.getElementById('gridDensityValue').textContent = e.target.value;
+            initGrid();
+        });
+        
+        document.getElementById('pulseSpeed').addEventListener('input', (e) => {
+            config.pulseSpeed = parseFloat(e.target.value);
+            document.getElementById('pulseSpeedValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('pulseWidth').addEventListener('input', (e) => {
+            config.pulseWidth = parseInt(e.target.value);
+            document.getElementById('pulseWidthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('connectionDist').addEventListener('input', (e) => {
+            config.connectionDistance = parseInt(e.target.value);
+            document.getElementById('connectionDistValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('autoPulseBtn').addEventListener('click', (e) => {
+            autoPulse = !autoPulse;
+            e.target.textContent = autoPulse ? '停止自动' : '自动脉冲';
+            e.target.style.background = autoPulse ? 
+                'linear-gradient(135deg, #ff0055 0%, #ff4400 100%)' : 
+                'linear-gradient(135deg, #00f5ff 0%, #0080ff 100%)';
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            pulses = [];
+            autoPulse = false;
+            document.getElementById('autoPulseBtn').textContent = '自动脉冲';
+            document.getElementById('autoPulseBtn').style.background = 
+                'linear-gradient(135deg, #00f5ff 0%, #0080ff 100%)';
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initGrid();
+        });
+        
+        // 性能优化：移动设备减少网格密度
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.gridSpacing = 40;
+            document.getElementById('gridDensity').value = 30;
+            document.getElementById('gridDensityValue').textContent = 30;
+        }
+        
+        // 初始化
+        initGrid();
+        
+        // 启动动画
+        animate(performance.now());
+        
+        // 启动时创建一个中心脉冲
+        setTimeout(() => {
+            pulses.push(new Pulse(width / 2, height / 2, 0));
+        }, 500);
+    </script>
+</body>
+</html>
