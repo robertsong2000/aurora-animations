@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何万花筒 - Geometric Kaleidoscope</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.8);
+            letter-spacing: 5px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 20px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">🔷 几何万花筒</div>
+    <canvas id="kaleidoscope"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 控制旋转速度</div>
+        <div>👆 点击 - 改变颜色主题</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('kaleidoscope');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let mouseX = 0, mouseY = 0;
+        
+        // 万花筒配置
+        let rotationAngle = 0;
+        let rotationSpeed = 0.02;
+        let segments = 12; // 分段数
+        let colorThemeIndex = 0;
+        
+        // 几何形状
+        let shapes = [];
+        const SHAPE_COUNT = 8;
+        
+        // 颜色主题
+        const COLOR_THEMES = [
+            // 彩虹主题
+            ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7'],
+            // 冷色调
+            ['#74b9ff', '#a29bfe', '#fd79a8', '#00cec9', '#81ecec', '#55efc4', '#ffeaa7'],
+            // 暖色调
+            ['#fdcb6e', '#e17055', '#d63031', '#ff7675', '#fab1a0', '#ff9ff3', '#feca57'],
+            // 单色渐变
+            ['#6c5ce7', '#a29bfe', '#dfe6e9', '#b2bec3', '#74b9ff', '#0984e3', '#00cec9'],
+        ];
+        
+        let currentColors = COLOR_THEMES[0];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+            initShapes();
+        }
+        
+        // 初始化几何形状
+        function initShapes() {
+            shapes = [];
+            const maxRadius = Math.min(width, height) * 0.4;
+            
+            for (let i = 0; i < SHAPE_COUNT; i++) {
+                shapes.push({
+                    type: ['circle', 'triangle', 'square', 'hexagon'][Math.floor(Math.random() * 4)],
+                    radius: 30 + Math.random() * (maxRadius / 3),
+                    distance: 50 + Math.random() * (maxRadius / 2),
+                    angle: (Math.PI * 2 / SHAPE_COUNT) * i,
+                    rotationSpeed: (Math.random() - 0.5) * 0.05,
+                    colorIndex: i % currentColors.length,
+                    alpha: 0.3 + Math.random() * 0.5,
+                });
+            }
+        }
+        
+        // 绘制单个形状
+        function drawShape(shape, globalRotation) {
+            const angle = shape.angle + globalRotation;
+            const x = centerX + Math.cos(angle) * shape.distance;
+            const y = centerY + Math.sin(angle) * shape.distance;
+            
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            
+            ctx.fillStyle = currentColors[shape.colorIndex];
+            ctx.globalAlpha = shape.alpha;
+            ctx.strokeStyle = currentColors[(shape.colorIndex + 1) % currentColors.length];
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            
+            switch (shape.type) {
+                case 'circle':
+                    ctx.arc(0, 0, shape.radius, 0, Math.PI * 2);
+                    break;
+                    
+                case 'triangle':
+                    for (let i = 0; i < 3; i++) {
+                        const angle = (Math.PI * 2 / 3) * i - Math.PI / 2;
+                        const px = Math.cos(angle) * shape.radius;
+                        const py = Math.sin(angle) * shape.radius;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    break;
+                    
+                case 'square':
+                    const halfSize = shape.radius * 0.707;
+                    ctx.rect(-halfSize, -halfSize, halfSize * 2, halfSize * 2);
+                    break;
+                    
+                case 'hexagon':
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (Math.PI * 2 / 6) * i;
+                        const px = Math.cos(angle) * shape.radius;
+                        const py = Math.sin(angle) * shape.radius;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    break;
+            }
+            
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+        
+        // 绘制万花筒对称图案
+        function drawKaleidoscope(time) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            
+            // 绘制多个对称的段
+            for (let seg = 0; seg < segments; seg++) {
+                const segmentAngle = (Math.PI * 2 / segments) * seg;
+                
+                ctx.save();
+                ctx.rotate(segmentAngle);
+                
+                // 绘制所有形状
+                shapes.forEach(shape => {
+                    drawShape(shape, rotationAngle);
+                });
+                
+                // 镜像对称
+                ctx.scale(1, -1);
+                shapes.forEach(shape => {
+                    drawShape(shape, rotationAngle);
+                });
+                
+                ctx.restore();
+            }
+            
+            ctx.restore();
+        }
+        
+        // 绘制中心装饰
+        function drawCenterDecoration() {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            
+            // 多层同心圆
+            for (let i = 5; i >= 0; i--) {
+                const radius = 20 + i * 10;
+                ctx.strokeStyle = currentColors[i % currentColors.length];
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.5 - i * 0.08;
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+        
+        // 绘制背景光晕
+        function drawBackgroundGlow() {
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height) * 0.6
+            );
+            gradient.addColorStop(0, 'rgba(100, 100, 150, 0.1)');
+            gradient.addColorStop(0.5, 'rgba(50, 50, 100, 0.05)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 改变颜色主题
+        function changeColorTheme() {
+            colorThemeIndex = (colorThemeIndex + 1) % COLOR_THEMES.length;
+            currentColors = COLOR_THEMES[colorThemeIndex];
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const time = currentTime * 0.001;
+            
+            // 清除画布（半透明，产生拖尾）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制背景光晕
+            drawBackgroundGlow();
+            
+            // 根据鼠标位置调整旋转速度
+            const targetSpeed = ((mouseX - centerX) / width) * 0.1;
+            rotationSpeed += (targetSpeed - rotationSpeed) * 0.05;
+            rotationAngle += rotationSpeed;
+            
+            // 更新形状旋转
+            shapes.forEach(shape => {
+                shape.angle += shape.rotationSpeed;
+            });
+            
+            // 绘制万花筒
+            drawKaleidoscope(time);
+            
+            // 绘制中心装饰
+            drawCenterDecoration();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', () => {
+            changeColorTheme();
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            changeColorTheme();
+        });
+        
+        // 初始化
+        resize();
+        mouseX = centerX;
+        mouseY = centerY;
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
