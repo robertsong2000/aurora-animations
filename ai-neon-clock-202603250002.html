@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹时钟 - Neon Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1a0a2e 0%, #000 100%);
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .clock-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        
+        .digital-clock {
+            font-size: clamp(48px, 12vw, 120px);
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 
+                0 0 5px #fff,
+                0 0 10px #fff,
+                0 0 20px #ff00de,
+                0 0 40px #ff00de,
+                0 0 80px #ff00de,
+                0 0 120px #ff00de;
+            animation: pulse 2s ease-in-out infinite;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.3s ease;
+        }
+        
+        .digital-clock:hover {
+            transform: scale(1.05);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        .date {
+            font-size: clamp(16px, 4vw, 32px);
+            color: #00ffff;
+            text-shadow: 
+                0 0 5px #00ffff,
+                0 0 10px #00ffff,
+                0 0 20px #00ffff,
+                0 0 40px #00ffff;
+            margin-top: 20px;
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #00ffff; }
+            to { text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 40px #00ffff, 0 0 80px #00ffff; }
+        }
+        
+        .seconds-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: calc(100% + 60px);
+            max-width: 660px;
+            height: calc(100% + 60px);
+            pointer-events: none;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 0, 222, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(255, 0, 222, 0.6);
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        .neon-particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas class="neon-particles" id="particles"></canvas>
+    
+    <div class="clock-container">
+        <svg class="seconds-ring" id="secondsRing">
+            <circle cx="50%" cy="50%" r="45%" fill="none" stroke="rgba(255, 0, 222, 0.3)" stroke-width="2" stroke-dasharray="5,5"/>
+            <circle id="secondsProgress" cx="50%" cy="50%" r="45%" fill="none" stroke="#ff00de" stroke-width="3" stroke-linecap="round"
+                stroke-dasharray="0, 1000" style="filter: drop-shadow(0 0 10px #ff00de);"/>
+        </svg>
+        
+        <div class="digital-clock" id="digitalClock">00:00:00</div>
+        <div class="date" id="dateDisplay">2026年3月25日 星期二</div>
+    </div>
+    
+    <div class="info">
+        <div>🖱️ 点击时钟 - 切换颜色主题</div>
+        <div>👆 移动鼠标 - 粒子跟随效果</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        
+        // 粒子系统
+        let particles = [];
+        const PARTICLE_COUNT = 50;
+        let mouseX = 0, mouseY = 0;
+        
+        // 颜色主题
+        const colorThemes = [
+            { primary: '#ff00de', secondary: '#00ffff', name: '粉青' },
+            { primary: '#ff6b6b', secondary: '#4ecdc4', name: '红青' },
+            { primary: '#ffd93d', secondary: '#6bcf7f', name: '黄绿' },
+            { primary: '#a29bfe', secondary: '#fd79a8', name: '紫粉' },
+            { primary: '#00b894', secondary: '#fdcb6e', name: '绿黄' },
+        ];
+        let currentThemeIndex = 0;
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2,
+                    size: Math.random() * 3 + 1,
+                    alpha: Math.random() * 0.5 + 0.3,
+                    color: Math.random() > 0.5 ? 'primary' : 'secondary',
+                });
+            }
+        }
+        
+        // 更新粒子
+        function updateParticles() {
+            const theme = colorThemes[currentThemeIndex];
+            
+            particles.forEach(particle => {
+                // 鼠标吸引
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 200) {
+                    const force = (200 - dist) / 200;
+                    particle.vx += (dx / dist) * force * 0.1;
+                    particle.vy += (dy / dist) * force * 0.1;
+                }
+                
+                // 应用速度
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                
+                // 速度衰减
+                particle.vx *= 0.99;
+                particle.vy *= 0.99;
+                
+                // 边界循环
+                if (particle.x < 0) particle.x = width;
+                if (particle.x > width) particle.x = 0;
+                if (particle.y < 0) particle.y = height;
+                if (particle.y > height) particle.y = 0;
+            });
+        }
+        
+        // 绘制粒子
+        function drawParticles() {
+            ctx.clearRect(0, 0, width, height);
+            
+            const theme = colorThemes[currentThemeIndex];
+            
+            particles.forEach(particle => {
+                const color = particle.color === 'primary' ? theme.primary : theme.secondary;
+                
+                ctx.save();
+                ctx.fillStyle = color;
+                ctx.globalAlpha = particle.alpha;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = color;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+        
+        // 更新时钟
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            
+            document.getElementById('digitalClock').textContent = `${hours}:${minutes}:${seconds}`;
+            
+            // 更新日期
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
+            const day = now.getDate();
+            const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+            const weekday = weekdays[now.getDay()];
+            
+            document.getElementById('dateDisplay').textContent = `${year}年${month}月${day}日 ${weekday}`;
+            
+            // 更新秒环
+            const secondsProgress = document.getElementById('secondsProgress');
+            const circumference = 2 * Math.PI * 45;
+            const progress = (now.getSeconds() / 60) * circumference;
+            secondsProgress.style.strokeDasharray = `${progress}, 1000`;
+        }
+        
+        // 切换颜色主题
+        function toggleTheme() {
+            currentThemeIndex = (currentThemeIndex + 1) % colorThemes.length;
+            const theme = colorThemes[currentThemeIndex];
+            
+            // 更新时钟颜色
+            const clock = document.getElementById('digitalClock');
+            clock.style.textShadow = `
+                0 0 5px #fff,
+                0 0 10px #fff,
+                0 0 20px ${theme.primary},
+                0 0 40px ${theme.primary},
+                0 0 80px ${theme.primary},
+                0 0 120px ${theme.primary}
+            `;
+            
+            // 更新秒环颜色
+            const secondsProgress = document.getElementById('secondsProgress');
+            secondsProgress.style.stroke = theme.primary;
+            secondsProgress.style.filter = `drop-shadow(0 0 10px ${theme.primary})`;
+            
+            // 更新日期颜色
+            const dateDisplay = document.getElementById('dateDisplay');
+            dateDisplay.style.color = theme.secondary;
+            dateDisplay.style.textShadow = `
+                0 0 5px ${theme.secondary},
+                0 0 10px ${theme.secondary},
+                0 0 20px ${theme.secondary},
+                0 0 40px ${theme.secondary}
+            `;
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            updateParticles();
+            drawParticles();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        document.addEventListener('touchmove', (e) => {
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        document.getElementById('digitalClock').addEventListener('click', toggleTheme);
+        
+        document.getElementById('digitalClock').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            toggleTheme();
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        
+        // 启动时钟更新
+        updateClock();
+        setInterval(updateClock, 1000);
+        
+        // 启动动画
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
