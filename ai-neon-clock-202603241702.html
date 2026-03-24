@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霓虹时钟 - Neon Clock</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="clock"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 改变霓虹颜色</div>
+        <div>👆 点击 - 切换时钟样式</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('clock');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height, centerX, centerY;
+        let mouseX = 0, mouseY = 0;
+        
+        // 时钟配置
+        let clockStyle = 0;
+        const CLOCK_STYLES = ['analog', 'digital', 'binary'];
+        let neonHue = 180; // 蓝色
+        
+        // 霓虹颜色
+        const NEON_COLORS = {
+            cyan: { r: 0, g: 255, b: 255 },
+            magenta: { r: 255, g: 0, b: 255 },
+            green: { r: 0, g: 255, b: 100 },
+            orange: { r: 255, g: 150, b: 0 },
+        };
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        
+        // 获取霓虹颜色
+        function getNeonColor(hue, alpha = 1) {
+            const h = hue / 360;
+            const s = 1;
+            const l = 0.5;
+            
+            let r, g, b;
+            
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            
+            return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${alpha})`;
+        }
+        
+        // 绘制模拟时钟
+        function drawAnalogClock(time) {
+            const radius = Math.min(width, height) * 0.3;
+            const now = new Date();
+            const hours = now.getHours() % 12;
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            const milliseconds = now.getMilliseconds();
+            
+            // 时钟外圈
+            ctx.save();
+            ctx.strokeStyle = getNeonColor(neonHue, 0.8);
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = getNeonColor(neonHue, 0.8);
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+            
+            // 刻度
+            for (let i = 0; i < 12; i++) {
+                const angle = (Math.PI * 2 / 12) * i - Math.PI / 2;
+                const x1 = centerX + Math.cos(angle) * (radius - 15);
+                const y1 = centerY + Math.sin(angle) * (radius - 15);
+                const x2 = centerX + Math.cos(angle) * (radius - 5);
+                const y2 = centerY + Math.sin(angle) * (radius - 5);
+                
+                ctx.save();
+                ctx.strokeStyle = getNeonColor(neonHue, 0.6);
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = getNeonColor(neonHue, 0.6);
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                ctx.restore();
+            }
+            
+            // 时针
+            const hourAngle = (Math.PI * 2 / 12) * hours + (Math.PI * 2 / 12 / 60) * minutes - Math.PI / 2;
+            drawClockHand(hourAngle, radius * 0.5, 6, getNeonColor((neonHue + 120) % 360, 0.9));
+            
+            // 分针
+            const minuteAngle = (Math.PI * 2 / 60) * minutes + (Math.PI * 2 / 60 / 60) * seconds - Math.PI / 2;
+            drawClockHand(minuteAngle, radius * 0.7, 4, getNeonColor((neonHue + 240) % 360, 0.9));
+            
+            // 秒针
+            const secondAngle = (Math.PI * 2 / 60) * seconds + (Math.PI * 2 / 60 / 1000) * milliseconds - Math.PI / 2;
+            drawClockHand(secondAngle, radius * 0.8, 2, getNeonColor(neonHue, 1));
+            
+            // 中心点
+            ctx.save();
+            ctx.fillStyle = getNeonColor(neonHue, 1);
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = getNeonColor(neonHue, 1);
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        
+        // 绘制时钟指针
+        function drawClockHand(angle, length, width, color) {
+            const x = centerX + Math.cos(angle) * length;
+            const y = centerY + Math.sin(angle) * length;
+            
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.restore();
+        }
+        
+        // 绘制数字时钟
+        function drawDigitalClock(time) {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const timeString = `${hours}:${minutes}:${seconds}`;
+            
+            ctx.save();
+            ctx.font = 'bold 80px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = getNeonColor(neonHue, 1);
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = getNeonColor(neonHue, 1);
+            ctx.fillText(timeString, centerX, centerY);
+            ctx.restore();
+            
+            // 日期
+            const date = now.toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long'
+            });
+            
+            ctx.save();
+            ctx.font = '24px Arial';
+            ctx.fillStyle = getNeonColor((neonHue + 180) % 360, 0.8);
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = getNeonColor((neonHue + 180) % 360, 0.8);
+            ctx.fillText(date, centerX, centerY + 60);
+            ctx.restore();
+        }
+        
+        // 绘制二进制时钟
+        function drawBinaryClock(time) {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            
+            const binary = {
+                hours: hours.toString(2).padStart(6, '0'),
+                minutes: minutes.toString(2).padStart(6, '0'),
+                seconds: seconds.toString(2).padStart(6, '0'),
+            };
+            
+            const spacing = 50;
+            const startY = centerY - spacing;
+            
+            // 小时
+            drawBinaryRow(binary.hours, centerY - spacing, '时');
+            // 分钟
+            drawBinaryRow(binary.minutes, centerY, '分');
+            // 秒
+            drawBinaryRow(binary.seconds, centerY + spacing, '秒');
+        }
+        
+        // 绘制二进制行
+        function drawBinaryRow(binary, y, label) {
+            const dotSize = 15;
+            const totalWidth = binary.length * (dotSize * 2 + 10);
+            const startX = centerX - totalWidth / 2 + dotSize;
+            
+            ctx.save();
+            ctx.font = '20px Arial';
+            ctx.fillStyle = getNeonColor(neonHue, 0.8);
+            ctx.textAlign = 'right';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = getNeonColor(neonHue, 0.8);
+            ctx.fillText(label + ':', startX - 20, y + 5);
+            ctx.restore();
+            
+            for (let i = 0; i < binary.length; i++) {
+                const x = startX + i * (dotSize * 2 + 10);
+                const isOn = binary[i] === '1';
+                
+                ctx.save();
+                ctx.fillStyle = isOn 
+                    ? getNeonColor(neonHue, 1) 
+                    : 'rgba(50, 50, 50, 0.3)';
+                ctx.shadowBlur = isOn ? 20 : 0;
+                ctx.shadowColor = isOn ? getNeonColor(neonHue, 1) : 'transparent';
+                ctx.beginPath();
+                ctx.arc(x, y, dotSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+        
+        // 绘制背景光晕
+        function drawBackgroundGlow() {
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height) * 0.6
+            );
+            gradient.addColorStop(0, `rgba(20, 20, 40, 0.5)`);
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const time = currentTime * 0.001;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制背景光晕
+            drawBackgroundGlow();
+            
+            // 根据鼠标位置改变霓虹颜色
+            neonHue = (mouseX / width) * 360;
+            
+            // 绘制时钟
+            switch (CLOCK_STYLES[clockStyle]) {
+                case 'analog':
+                    drawAnalogClock(time);
+                    break;
+                case 'digital':
+                    drawDigitalClock(time);
+                    break;
+                case 'binary':
+                    drawBinaryClock(time);
+                    break;
+            }
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', () => {
+            clockStyle = (clockStyle + 1) % CLOCK_STYLES.length;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            clockStyle = (clockStyle + 1) % CLOCK_STYLES.length;
+        });
+        
+        // 初始化
+        resize();
+        mouseX = centerX;
+        mouseY = centerY;
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
