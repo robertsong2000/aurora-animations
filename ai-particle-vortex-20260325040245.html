@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子漩涡 - Particle Vortex</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            line-height: 1.6;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 18px;
+            color: #00d4ff;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 120px;
+        }
+        
+        input[type="range"] {
+            width: 150px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #00d4ff;
+        }
+        
+        button {
+            margin-top: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌀 粒子漩涡</h3>
+        <div>粒子数量: <span id="particleCount">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+        <div>引力源: <span id="gravityCount">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>漩涡强度:</label>
+            <input type="range" id="vortexStrength" min="0" max="200" value="100">
+            <span class="value" id="vortexStrengthValue">100</span>
+        </div>
+        <div class="control-item">
+            <label>引力强度:</label>
+            <input type="range" id="gravityStrength" min="0" max="200" value="80">
+            <span class="value" id="gravityStrengthValue">80</span>
+        </div>
+        <div class="control-item">
+            <label>粒子数量:</label>
+            <input type="range" id="particleDensity" min="100" max="2000" value="800">
+            <span class="value" id="particleDensityValue">800</span>
+        </div>
+        <div class="control-item">
+            <label>拖尾长度:</label>
+            <input type="range" id="trailLength" min="0" max="100" value="30">
+            <span class="value" id="trailLengthValue">30</span>
+        </div>
+        <button id="resetBtn">重置</button>
+        <button id="addGravityBtn">添加引力源</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            particleCount: 800,
+            vortexStrength: 100,
+            gravityStrength: 80,
+            trailAlpha: 0.03,
+            particleMinSize: 1,
+            particleMaxSize: 3
+        };
+        
+        // 引力源
+        let gravitySources = [
+            { x: width / 2, y: height / 2, strength: 1, vortex: true }
+        ];
+        
+        // 粒子数组
+        let particles = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色主题
+        const colors = [
+            { r: 0, g: 212, b: 255 },   // 青色
+            { r: 138, g: 43, b: 226 },  // 紫色
+            { r: 255, g: 105, b: 180 }, // 粉色
+            { r: 0, g: 255, b: 127 },   // 绿色
+            { r: 255, g: 215, b: 0 }    // 金色
+        ];
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // 随机位置（从中心向外扩散）
+                const angle = Math.random() * Math.PI * 2;
+                const distance = Math.random() * Math.min(width, height) * 0.4;
+                this.x = width / 2 + Math.cos(angle) * distance;
+                this.y = height / 2 + Math.sin(angle) * distance;
+                
+                // 初始速度（切向速度产生旋转）
+                const speed = Math.random() * 2 + 1;
+                this.vx = Math.cos(angle + Math.PI / 2) * speed;
+                this.vy = Math.sin(angle + Math.PI / 2) * speed;
+                
+                // 大小和颜色
+                this.size = Math.random() * (config.particleMaxSize - config.particleMinSize) + config.particleMinSize;
+                const colorIndex = Math.floor(Math.random() * colors.length);
+                this.color = { ...colors[colorIndex] };
+                this.alpha = Math.random() * 0.5 + 0.5;
+                
+                // 生命周期
+                this.life = 1;
+                this.decay = Math.random() * 0.001 + 0.0005;
+            }
+            
+            update() {
+                // 对每个引力源计算力
+                gravitySources.forEach(source => {
+                    const dx = source.x - this.x;
+                    const dy = source.y - this.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 5) {
+                        // 归一化方向
+                        const nx = dx / distance;
+                        const ny = dy / distance;
+                        
+                        // 引力
+                        const gravityForce = (config.gravityStrength * source.strength) / (distance * 0.5);
+                        this.vx += nx * gravityForce * 0.01;
+                        this.vy += ny * gravityForce * 0.01;
+                        
+                        // 漩涡力（切向力）
+                        if (source.vortex) {
+                            const vortexForce = (config.vortexStrength * source.strength) / (distance * 0.3);
+                            this.vx += -ny * vortexForce * 0.01;
+                            this.vy += nx * vortexForce * 0.01;
+                        }
+                    }
+                });
+                
+                // 速度衰减
+                this.vx *= 0.995;
+                this.vy *= 0.995;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 生命衰减
+                this.life -= this.decay;
+                
+                // 边界检查或生命结束
+                if (this.life <= 0 || 
+                    this.x < -50 || this.x > width + 50 ||
+                    this.y < -50 || this.y > height + 50) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const hueShift = speed * 10;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                
+                // 根据速度调整颜色亮度
+                const brightness = Math.min(speed * 20, 100);
+                ctx.fillStyle = `hsla(${(this.color.r + this.color.g + hueShift) % 360}, 
+                                      ${70 + brightness * 0.3}%, 
+                                      ${50 + brightness * 0.5}%, 
+                                      ${this.alpha * this.life})`;
+                ctx.fill();
+                
+                // 速度尾迹
+                if (speed > 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - this.vx * 3, this.y - this.vy * 3);
+                    ctx.strokeStyle = `hsla(${(this.color.r + this.color.g + hueShift) % 360}, 
+                                          80%, 70%, ${this.alpha * this.life * 0.5})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 绘制引力源
+        function drawGravitySources() {
+            gravitySources.forEach((source, index) => {
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    source.x, source.y, 0,
+                    source.x, source.y, 50
+                );
+                
+                if (source.vortex) {
+                    gradient.addColorStop(0, 'rgba(0, 212, 255, 0.5)');
+                    gradient.addColorStop(0.5, 'rgba(138, 43, 226, 0.2)');
+                    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                } else {
+                    gradient.addColorStop(0, 'rgba(255, 215, 0, 0.5)');
+                    gradient.addColorStop(0.5, 'rgba(255, 105, 180, 0.2)');
+                    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                }
+                
+                ctx.beginPath();
+                ctx.arc(source.x, source.y, 50, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 中心点
+                ctx.beginPath();
+                ctx.arc(source.x, source.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = source.vortex ? '#00d4ff' : '#ffd700';
+                ctx.fill();
+            });
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布（带拖尾效果）
+            ctx.fillStyle = `rgba(0, 0, 0, ${config.trailAlpha})`;
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制引力源
+            drawGravitySources();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新信息显示
+            document.getElementById('particleCount').textContent = particles.length;
+            document.getElementById('gravityCount').textContent = gravitySources.length;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：移动引力源
+        let isDragging = false;
+        let draggedSource = null;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 检查是否点击了引力源
+            gravitySources.forEach((source, index) => {
+                const dx = mouseX - source.x;
+                const dy = mouseY - source.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 30) {
+                    isDragging = true;
+                    draggedSource = index;
+                }
+            });
+            
+            // 如果没有点击引力源，添加新的
+            if (!isDragging) {
+                gravitySources.push({
+                    x: mouseX,
+                    y: mouseY,
+                    strength: 1,
+                    vortex: e.shiftKey
+                });
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging && draggedSource !== null) {
+                const rect = canvas.getBoundingClientRect();
+                gravitySources[draggedSource].x = e.clientX - rect.left;
+                gravitySources[draggedSource].y = e.clientY - rect.top;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            draggedSource = null;
+        });
+        
+        // 鼠标交互2：滚轮调整引力强度
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            config.gravityStrength = Math.max(0, Math.min(200, 
+                config.gravityStrength - e.deltaY * 0.1));
+            document.getElementById('gravityStrength').value = config.gravityStrength;
+            document.getElementById('gravityStrengthValue').textContent = 
+                Math.round(config.gravityStrength);
+        });
+        
+        // 触摸支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const touchX = touch.clientX - rect.left;
+            const touchY = touch.clientY - rect.top;
+            
+            gravitySources.push({
+                x: touchX,
+                y: touchY,
+                strength: 1,
+                vortex: true
+            });
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (gravitySources.length > 1) {
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const lastSource = gravitySources[gravitySources.length - 1];
+                lastSource.x = touch.clientX - rect.left;
+                lastSource.y = touch.clientY - rect.top;
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('vortexStrength').addEventListener('input', (e) => {
+            config.vortexStrength = parseFloat(e.target.value);
+            document.getElementById('vortexStrengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('gravityStrength').addEventListener('input', (e) => {
+            config.gravityStrength = parseFloat(e.target.value);
+            document.getElementById('gravityStrengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleCount = newCount;
+        });
+        
+        document.getElementById('trailLength').addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            config.trailAlpha = (100 - value) / 1000 + 0.01;
+            document.getElementById('trailLengthValue').textContent = value;
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            gravitySources = [{ x: width / 2, y: height / 2, strength: 1, vortex: true }];
+            initParticles();
+        });
+        
+        document.getElementById('addGravityBtn').addEventListener('click', () => {
+            gravitySources.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                strength: 0.5 + Math.random() * 1,
+                vortex: Math.random() > 0.5
+            });
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            
+            // 更新主引力源位置
+            if (gravitySources.length > 0) {
+                gravitySources[0].x = width / 2;
+                gravitySources[0].y = height / 2;
+            }
+        });
+        
+        // 性能优化：减少粒子数量（移动设备）
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleCount = 400;
+            document.getElementById('particleDensity').value = 400;
+            document.getElementById('particleDensityValue').textContent = 400;
+        }
+        
+        // 启动
+        initParticles();
+        animate(performance.now());
+    </script>
+</body>
+</html>
