@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>量子纠缠 - Quantum Entanglement</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0015;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(10, 0, 21, 0.8);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        
+        #info .highlight {
+            color: #ff00ff;
+            font-weight: bold;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(10, 0, 21, 0.8);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 110px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #00ffff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #00ffff 0%, #0080ff 100%);
+            border: none;
+            border-radius: 5px;
+            color: #0a0015;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.5);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        #status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(10, 0, 21, 0.8);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #status .measured {
+            color: #ff00ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>⚛️ 量子纠缠</h3>
+        <div>纠缠对数量: <span id="pairCount">0</span></div>
+        <div>已测量: <span id="measuredCount">0</span></div>
+        <div>波函数坍缩: <span id="collapseCount">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+        <div style="margin-top: 10px; font-size: 11px; opacity: 0.7;">
+            点击测量粒子，观察瞬间坍缩
+        </div>
+    </div>
+    
+    <div id="status">
+        <div>状态: <span id="quantumState">叠加态</span></div>
+        <div>纠缠度: <span id="entanglement">100%</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>粒子对数量:</label>
+            <input type="range" id="pairCount" min="1" max="20" value="5">
+            <span class="value" id="pairCountValue">5</span>
+        </div>
+        <div class="control-item">
+            <label>纠缠强度:</label>
+            <input type="range" id="entanglementStrength" min="0" max="100" value="80">
+            <span class="value" id="entanglementStrengthValue">80</span>
+        </div>
+        <div class="control-item">
+            <label>波函数频率:</label>
+            <input type="range" id="waveFrequency" min="1" max="20" value="10">
+            <span class="value" id="waveFrequencyValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>隧穿概率:</label>
+            <input type="range" id="tunnelProb" min="0" max="100" value="30">
+            <span class="value" id="tunnelProbValue">30</span>
+        </div>
+        <button id="measureAllBtn">测量全部</button>
+        <button id="resetBtn">重置系统</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            pairCount: 5,
+            entanglementStrength: 80,
+            waveFrequency: 10,
+            tunnelProbability: 30
+        };
+        
+        // 统计
+        let stats = {
+            measured: 0,
+            collapses: 0
+        };
+        
+        // 量子粒子对
+        let quantumPairs = [];
+        
+        // 波函数涟漪
+        let ripples = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色主题
+        const colors = {
+            particle1: { r: 0, g: 255, b: 255 },    // 青色
+            particle2: { r: 255, g: 0, b: 255 },    // 品红
+            superposition: { r: 255, g: 255, b: 0 }, // 黄色
+            collapsed: { r: 255, g: 100, b: 100 },  // 红色
+            tunnel: { r: 100, g: 255, b: 100 }      // 绿色
+        };
+        
+        // 量子粒子类
+        class QuantumParticle {
+            constructor(x, y, id, partner = null) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x;
+                this.baseY = y;
+                this.id = id;
+                this.partner = partner;
+                
+                // 量子态
+                this.state = Math.random() > 0.5 ? 1 : 0; // |1⟩ 或 |0⟩
+                this.superposition = true; // 叠加态
+                this.measured = false;
+                
+                // 波函数参数
+                this.phase = Math.random() * Math.PI * 2;
+                this.amplitude = 20;
+                this.frequency = config.waveFrequency * 0.01;
+                
+                // 视觉效果
+                this.size = 8;
+                this.alpha = 0.8;
+                this.rotationAngle = 0;
+                this.spinDirection = Math.random() > 0.5 ? 1 : -1;
+                
+                // 隧穿
+                this.tunneling = false;
+                this.tunnelProgress = 0;
+                this.tunnelTarget = null;
+                
+                // 纠缠连接线
+                this.connectionPhase = 0;
+            }
+            
+            setPartner(partner) {
+                this.partner = partner;
+            }
+            
+            measure() {
+                if (!this.measured) {
+                    this.measured = true;
+                    this.superposition = false;
+                    
+                    // 波函数坍缩
+                    this.state = Math.random() > 0.5 ? 1 : 0;
+                    stats.measured++;
+                    stats.collapses++;
+                    
+                    // 创建涟漪
+                    ripples.push(new Ripple(this.x, this.y, 'collapse'));
+                    
+                    // 触发纠缠粒子的瞬间坍缩（爱因斯坦的"鬼魅般超距作用"）
+                    if (this.partner && this.partner.superposition) {
+                        setTimeout(() => {
+                            this.partner.state = 1 - this.state; // 相反态
+                            this.partner.measured = true;
+                            this.partner.superposition = false;
+                            stats.measured++;
+                            
+                            ripples.push(new Ripple(this.partner.x, this.partner.y, 'collapse'));
+                            
+                            updateUI();
+                        }, 50); // 模拟"瞬间"坍缩
+                    }
+                    
+                    updateUI();
+                }
+            }
+            
+            update() {
+                // 叠加态时的波函数运动
+                if (this.superposition) {
+                    this.phase += this.frequency;
+                    
+                    // 波函数概率云
+                    const waveX = Math.sin(this.phase) * this.amplitude;
+                    const waveY = Math.cos(this.phase * 1.3) * this.amplitude * 0.7;
+                    
+                    this.x = this.baseX + waveX;
+                    this.y = this.baseY + waveY;
+                    
+                    // 旋转
+                    this.rotationAngle += 0.02 * this.spinDirection;
+                    
+                    // 量子隧穿
+                    if (Math.random() < config.tunnelProbability * 0.0001 && !this.tunneling) {
+                        this.tunneling = true;
+                        this.tunnelTarget = {
+                            x: this.baseX + (Math.random() - 0.5) * 100,
+                            y: this.baseY + (Math.random() - 0.5) * 100
+                        };
+                        ripples.push(new Ripple(this.x, this.y, 'tunnel'));
+                    }
+                }
+                
+                // 隧穿动画
+                if (this.tunneling) {
+                    this.tunnelProgress += 0.05;
+                    if (this.tunnelProgress >= 1) {
+                        this.baseX = this.tunnelTarget.x;
+                        this.baseY = this.tunnelTarget.y;
+                        this.tunneling = false;
+                        this.tunnelProgress = 0;
+                        ripples.push(new Ripple(this.x, this.y, 'tunnel'));
+                    } else {
+                        // 隧穿过程中的闪烁
+                        this.alpha = 0.3 + Math.sin(this.tunnelProgress * Math.PI) * 0.5;
+                    }
+                }
+                
+                // 纠缠连接相位
+                this.connectionPhase += 0.03;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotationAngle);
+                
+                // 选择颜色
+                let color;
+                if (this.measured) {
+                    color = this.state === 1 ? colors.particle1 : colors.particle2;
+                } else {
+                    color = colors.superposition;
+                }
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size * 3);
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha})`);
+                gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha * 0.3})`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha})`;
+                ctx.fill();
+                
+                // 叠加态符号（旋转的∞）
+                if (this.superposition) {
+                    ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha * 0.6})`;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    for (let i = 0; i < Math.PI * 2; i += 0.1) {
+                        const r = this.size * 1.5;
+                        const x = r * Math.cos(i);
+                        const y = r * Math.sin(i) * Math.sin(i * 2);
+                        if (i === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                } else {
+                    // 已测量态符号（|1⟩ 或 |0⟩）
+                    ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(this.state === 1 ? '|1⟩' : '|0⟩', 0, 0);
+                }
+                
+                // 隧穿效果
+                if (this.tunneling) {
+                    ctx.strokeStyle = `rgba(${colors.tunnel.r}, ${colors.tunnel.g}, ${colors.tunnel.b}, ${0.5 * Math.sin(this.tunnelProgress * Math.PI)})`;
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    const dx = this.tunnelTarget.x - this.x;
+                    const dy = this.tunnelTarget.y - this.y;
+                    ctx.lineTo(dx, dy);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                
+                ctx.restore();
+            }
+            
+            drawConnection() {
+                if (this.partner && config.entanglementStrength > 0) {
+                    const dx = this.partner.x - this.x;
+                    const dy = this.partner.y - this.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // 纠缠连接线（波动）
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    
+                    const steps = 20;
+                    for (let i = 1; i <= steps; i++) {
+                        const t = i / steps;
+                        const x = this.x + dx * t;
+                        const y = this.y + dy * t;
+                        
+                        // 波动偏移
+                        const wave = Math.sin(this.connectionPhase + t * Math.PI * 4) * 
+                                    (config.entanglementStrength * 0.3);
+                        const perpX = -dy / distance * wave;
+                        const perpY = dx / distance * wave;
+                        
+                        ctx.lineTo(x + perpX, y + perpY);
+                    }
+                    
+                    // 渐变色（青色到品红）
+                    const gradient = ctx.createLinearGradient(this.x, this.y, this.partner.x, this.partner.y);
+                    gradient.addColorStop(0, `rgba(0, 255, 255, ${config.entanglementStrength * 0.005})`);
+                    gradient.addColorStop(0.5, `rgba(255, 0, 255, ${config.entanglementStrength * 0.008})`);
+                    gradient.addColorStop(1, `rgba(0, 255, 255, ${config.entanglementStrength * 0.005})`);
+                    
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // 纠缠符号（中间的⚛️）
+                    const midX = (this.x + this.partner.x) / 2;
+                    const midY = (this.y + this.partner.y) / 2;
+                    
+                    ctx.save();
+                    ctx.translate(midX, midY);
+                    ctx.rotate(this.connectionPhase);
+                    
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${config.entanglementStrength * 0.005})`;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 10, 0, Math.PI * 2);
+                    ctx.stroke();
+                    
+                    // 三个电子轨道
+                    for (let i = 0; i < 3; i++) {
+                        const angle = (Math.PI * 2 / 3) * i + this.connectionPhase;
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, 15, 5, angle, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                    
+                    ctx.restore();
+                }
+            }
+        }
+        
+        // 涟漪类（波函数坍缩/隧穿效果）
+        class Ripple {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.radius = 0;
+                this.maxRadius = type === 'collapse' ? 150 : 80;
+                this.alpha = 1;
+                this.speed = type === 'collapse' ? 5 : 3;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1 - (this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+            
+            draw() {
+                const color = this.type === 'collapse' ? colors.collapsed : colors.tunnel;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 内圈
+                if (this.radius > 10) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.alpha * 0.5})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 初始化量子粒子对
+        function initQuantumPairs() {
+            quantumPairs = [];
+            
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(width, height) * 0.3;
+            
+            for (let i = 0; i < config.pairCount; i++) {
+                const angle = (Math.PI * 2 / config.pairCount) * i;
+                const distance = radius + Math.random() * 50;
+                
+                // 创建两个纠缠粒子
+                const x1 = centerX + Math.cos(angle) * distance;
+                const y1 = centerY + Math.sin(angle) * distance;
+                const x2 = centerX + Math.cos(angle + Math.PI) * distance;
+                const y2 = centerY + Math.sin(angle + Math.PI) * distance;
+                
+                const particle1 = new QuantumParticle(x1, y1, i * 2);
+                const particle2 = new QuantumParticle(x2, y2, i * 2 + 1);
+                
+                // 设置纠缠关系
+                particle1.setPartner(particle2);
+                particle2.setPartner(particle1);
+                
+                quantumPairs.push(particle1, particle2);
+            }
+            
+            stats.measured = 0;
+            stats.collapses = 0;
+            updateUI();
+        }
+        
+        // 更新UI
+        function updateUI() {
+            document.getElementById('pairCount').textContent = config.pairCount;
+            document.getElementById('measuredCount').textContent = stats.measured;
+            document.getElementById('collapseCount').textContent = stats.collapses;
+            
+            // 计算纠缠度
+            const measuredPairs = quantumPairs.filter(p => p.measured).length;
+            const entanglement = Math.round((1 - measuredPairs / quantumPairs.length) * 100);
+            document.getElementById('entanglement').textContent = entanglement + '%';
+            
+            // 更新量子态显示
+            const allMeasured = quantumPairs.every(p => p.measured);
+            document.getElementById('quantumState').textContent = allMeasured ? '已坍缩' : '叠加态';
+            document.getElementById('quantumState').className = allMeasured ? 'measured' : '';
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 0, 21, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制中心量子场
+            drawQuantumField();
+            
+            // 更新和绘制涟漪
+            ripples = ripples.filter(ripple => ripple.update());
+            ripples.forEach(ripple => ripple.draw());
+            
+            // 绘制纠缠连接线
+            for (let i = 0; i < quantumPairs.length; i += 2) {
+                quantumPairs[i].drawConnection();
+            }
+            
+            // 更新和绘制粒子
+            quantumPairs.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 绘制中心量子场
+        function drawQuantumField() {
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const time = performance.now() * 0.001;
+            
+            // 量子场波动
+            for (let i = 0; i < 3; i++) {
+                const radius = 100 + i * 40;
+                const alpha = 0.1 - i * 0.03;
+                
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius + Math.sin(time * 2 + i) * 10, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+        
+        // 鼠标交互1：点击测量粒子
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 检查是否点击了粒子
+            quantumPairs.forEach(particle => {
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 30 && particle.superposition) {
+                    particle.measure();
+                }
+            });
+        });
+        
+        // 鼠标交互2：悬停显示概率云
+        let hoverParticle = null;
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            hoverParticle = null;
+            quantumPairs.forEach(particle => {
+                const dx = mouseX - particle.x;
+                const dy = mouseY - particle.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 50) {
+                    hoverParticle = particle;
+                    particle.amplitude = 30; // 增大振幅
+                } else {
+                    particle.amplitude = 20;
+                }
+            });
+        });
+        
+        // 控制面板事件
+        document.getElementById('pairCount').addEventListener('input', (e) => {
+            config.pairCount = parseInt(e.target.value);
+            document.getElementById('pairCountValue').textContent = e.target.value;
+            initQuantumPairs();
+        });
+        
+        document.getElementById('entanglementStrength').addEventListener('input', (e) => {
+            config.entanglementStrength = parseInt(e.target.value);
+            document.getElementById('entanglementStrengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('waveFrequency').addEventListener('input', (e) => {
+            config.waveFrequency = parseInt(e.target.value);
+            document.getElementById('waveFrequencyValue').textContent = e.target.value;
+            quantumPairs.forEach(p => p.frequency = config.waveFrequency * 0.01);
+        });
+        
+        document.getElementById('tunnelProb').addEventListener('input', (e) => {
+            config.tunnelProbability = parseInt(e.target.value);
+            document.getElementById('tunnelProbValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('measureAllBtn').addEventListener('click', () => {
+            // 依次测量所有粒子
+            quantumPairs.forEach((particle, index) => {
+                if (particle.superposition) {
+                    setTimeout(() => particle.measure(), index * 200);
+                }
+            });
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            initQuantumPairs();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initQuantumPairs();
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.pairCount = 3;
+            document.getElementById('pairCount').value = 3;
+            document.getElementById('pairCountValue').textContent = 3;
+        }
+        
+        // 初始化并启动
+        initQuantumPairs();
+        animate(performance.now());
+    </script>
+</body>
+</html>
