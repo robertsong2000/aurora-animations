@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市天际线 - City Skyline</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0f3460 100%);
+            font-family: 'Arial', sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 200, 100, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 15px rgba(255, 150, 50, 0.6);
+        }
+        
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 220, 150, 0.9);
+            font-size: 32px;
+            font-weight: bold;
+            z-index: 100;
+            text-shadow: 0 0 30px rgba(255, 150, 50, 0.8);
+            letter-spacing: 5px;
+        }
+        
+        .fps {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 200, 150, 0.6);
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 100;
+        }
+        
+        @media (max-width: 768px) {
+            .info {
+                font-size: 11px;
+                bottom: 10px;
+                left: 10px;
+            }
+            .title {
+                font-size: 20px;
+                top: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="title">🌃 城市天际线</div>
+    <canvas id="cityscape"></canvas>
+    <div class="info">
+        <div>🖱️ 移动鼠标 - 窗户灯光闪烁</div>
+        <div>👆 点击 - 烟花发射</div>
+    </div>
+    <div class="fps" id="fps">FPS: 60</div>
+    
+    <script>
+        // 性能监控
+        const fpsElement = document.getElementById('fps');
+        let lastTime = performance.now();
+        let frameCount = 0;
+        
+        // Canvas 设置
+        const canvas = document.getElementById('cityscape');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        
+        // 城市配置
+        let buildings = [];
+        const BUILDING_COUNT = 25;
+        
+        // 星星
+        let stars = [];
+        const STAR_COUNT = 150;
+        
+        // 烟花系统
+        let fireworks = [];
+        let particles = [];
+        const GRAVITY = 0.05;
+        
+        // 颜色配置
+        const BUILDING_COLORS = [
+            '#1a1a2e', '#16213e', '#0f3460', '#1f1f3d', '#2d2d5a'
+        ];
+        
+        const WINDOW_COLORS = {
+            on: ['#ffeb3b', '#fff59d', '#ffee58', '#fdd835'],
+            off: ['#2a2a3a', '#1a1a2a', '#252535']
+        };
+        
+        const FIREWORK_COLORS = [
+            '#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7'
+        ];
+        
+        // 响应式调整
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initBuildings();
+            initStars();
+        }
+        
+        // 初始化建筑物
+        function initBuildings() {
+            buildings = [];
+            const buildingWidth = width / BUILDING_COUNT;
+            
+            for (let i = 0; i < BUILDING_COUNT; i++) {
+                const bWidth = buildingWidth * (0.6 + Math.random() * 0.8);
+                const bHeight = height * (0.2 + Math.random() * 0.5);
+                const windows = [];
+                
+                // 生成窗户
+                const windowRows = Math.floor(bHeight / 30);
+                const windowCols = Math.floor(bWidth / 25);
+                
+                for (let row = 0; row < windowRows; row++) {
+                    for (let col = 0; col < windowCols; col++) {
+                        windows.push({
+                            x: col * 25 + 10,
+                            y: row * 30 + 20,
+                            isOn: Math.random() > 0.5,
+                            flickerRate: Math.random() * 0.02,
+                            lastFlicker: Math.random() * 1000,
+                        });
+                    }
+                }
+                
+                buildings.push({
+                    x: i * buildingWidth + (buildingWidth - bWidth) / 2,
+                    y: height - bHeight,
+                    width: bWidth,
+                    height: bHeight,
+                    color: BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)],
+                    windows: windows,
+                    hasAntenna: Math.random() > 0.7,
+                    antennaHeight: 20 + Math.random() * 30,
+                });
+            }
+        }
+        
+        // 初始化星星
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < STAR_COUNT; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height * 0.4,
+                    size: Math.random() * 2 + 0.5,
+                    alpha: Math.random() * 0.5 + 0.5,
+                    twinkleSpeed: Math.random() * 0.02 + 0.01,
+                    twinklePhase: Math.random() * Math.PI * 2,
+                });
+            }
+        }
+        
+        // 创建烟花
+        function createFirework(x, y) {
+            const color = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
+            const particleCount = 60;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const angle = (Math.PI * 2 / particleCount) * i;
+                const speed = 2 + Math.random() * 4;
+                
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    alpha: 1,
+                    decay: 0.015 + Math.random() * 0.01,
+                    color: color,
+                    size: 2 + Math.random() * 2,
+                });
+            }
+        }
+        
+        // 更新粒子
+        function updateParticles() {
+            particles = particles.filter(particle => {
+                if (particle.alpha <= 0) return false;
+                
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.vy += GRAVITY;
+                particle.vx *= 0.98;
+                particle.vy *= 0.98;
+                particle.alpha -= particle.decay;
+                
+                return true;
+            });
+        }
+        
+        // 绘制星星
+        function drawStars(time) {
+            stars.forEach(star => {
+                const twinkle = Math.sin(time * star.twinkleSpeed * 60 + star.twinklePhase);
+                const alpha = star.alpha * (0.7 + twinkle * 0.3);
+                
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // 绘制月亮
+        function drawMoon() {
+            ctx.save();
+            ctx.fillStyle = '#f5f5dc';
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#f5f5dc';
+            ctx.beginPath();
+            ctx.arc(width - 150, 100, 40, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        
+        // 绘制建筑物
+        function drawBuildings(time) {
+            buildings.forEach(building => {
+                // 绘制建筑主体
+                ctx.fillStyle = building.color;
+                ctx.fillRect(building.x, building.y, building.width, building.height);
+                
+                // 绘制窗户
+                building.windows.forEach(window => {
+                    // 窗户闪烁（鼠标影响）
+                    const dx = (building.x + window.x) - mouseX;
+                    const dy = (building.y + window.y) - mouseY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 150 && Math.random() < 0.05) {
+                        window.isOn = !window.isOn;
+                    }
+                    
+                    // 自然闪烁
+                    if (time - window.lastFlicker > 1000 / window.flickerRate) {
+                        if (Math.random() < 0.02) {
+                            window.isOn = !window.isOn;
+                            window.lastFlicker = time;
+                        }
+                    }
+                    
+                    // 绘制窗户
+                    const windowColor = window.isOn 
+                        ? WINDOW_COLORS.on[Math.floor(Math.random() * WINDOW_COLORS.on.length)]
+                        : WINDOW_COLORS.off[Math.floor(Math.random() * WINDOW_COLORS.off.length)];
+                    
+                    ctx.fillStyle = windowColor;
+                    ctx.fillRect(
+                        building.x + window.x,
+                        building.y + window.y,
+                        15,
+                        20
+                    );
+                    
+                    // 窗户发光效果
+                    if (window.isOn) {
+                        ctx.save();
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = windowColor;
+                        ctx.fillRect(
+                            building.x + window.x,
+                            building.y + window.y,
+                            15,
+                            20
+                        );
+                        ctx.restore();
+                    }
+                });
+                
+                // 绘制天线
+                if (building.hasAntenna) {
+                    ctx.strokeStyle = '#3a3a4a';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(
+                        building.x + building.width / 2,
+                        building.y
+                    );
+                    ctx.lineTo(
+                        building.x + building.width / 2,
+                        building.y - building.antennaHeight
+                    );
+                    ctx.stroke();
+                    
+                    // 天线灯
+                    const blink = Math.sin(time * 0.003) > 0;
+                    if (blink) {
+                        ctx.fillStyle = '#ff0000';
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = '#ff0000';
+                        ctx.beginPath();
+                        ctx.arc(
+                            building.x + building.width / 2,
+                            building.y - building.antennaHeight,
+                            3,
+                            0,
+                            Math.PI * 2
+                        );
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            });
+        }
+        
+        // 绘制粒子
+        function drawParticles() {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            
+            particles.forEach(particle => {
+                ctx.fillStyle = particle.color;
+                ctx.globalAlpha = particle.alpha;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            ctx.restore();
+        }
+        
+        // 主动画循环
+        function animate(currentTime) {
+            const time = currentTime;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制星星
+            drawStars(time);
+            
+            // 绘制月亮
+            drawMoon();
+            
+            // 绘制建筑物
+            drawBuildings(time);
+            
+            // 更新和绘制粒子
+            updateParticles();
+            drawParticles();
+            
+            // FPS 计算
+            frameCount++;
+            if (frameCount >= 30) {
+                const fps = Math.round(30 / ((currentTime - lastTime) / 1000 * 30));
+                fpsElement.textContent = `FPS: ${Math.min(fps, 60)}`;
+                frameCount = 0;
+            }
+            
+            lastTime = currentTime;
+            requestAnimationFrame(animate);
+        }
+        
+        // 事件监听
+        window.addEventListener('resize', resize);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('click', (e) => {
+            createFirework(e.clientX, e.clientY);
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            createFirework(e.touches[0].clientX, e.touches[0].clientY);
+        });
+        
+        // 初始化
+        resize();
+        mouseX = width / 2;
+        mouseY = height / 2;
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
