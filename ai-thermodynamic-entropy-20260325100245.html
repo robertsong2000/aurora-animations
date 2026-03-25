@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>热力学熵增 - Thermodynamic Entropy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 100, 50, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 50, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ff6432;
+            text-shadow: 0 0 10px rgba(255, 100, 50, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 100, 50, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 50, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ff6432;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ff6432 0%, #ff3200 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 100, 50, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🔥 热力学熵增</h3>
+        <div>分子数量: <span id="moleculeCount">0</span></div>
+        <div>系统温度: <span id="temperature">0</span> K</div>
+        <div>系统熵值: <span id="entropy">0</span> J/K</div>
+        <div>有序度: <span id="order">0</span>%</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>初始温度:</label>
+            <input type="range" id="temperature" min="100" max="1000" value="500">
+            <span class="value" id="temperatureValue">500</span>
+        </div>
+        <div class="control-item">
+            <label>分子数量:</label>
+            <input type="range" id="moleculeDensity" min="50" max="500" value="200">
+            <span class="value" id="moleculeDensityValue">200</span>
+        </div>
+        <div class="control-item">
+            <label>容器分隔:</label>
+            <input type="range" id="barrierOpacity" min="0" max="100" value="100">
+            <span class="value" id="barrierOpacityValue">100</span>
+        </div>
+        <div class="control-item">
+            <label>热传导率:</label>
+            <input type="range" id="heatTransfer" min="1" max="100" value="50">
+            <span class="value" id="heatTransferValue">50</span>
+        </div>
+        <button id="removeBarrierBtn">移除隔板</button>
+        <button id="resetBtn">重置系统</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            temperature: 500,
+            moleculeCount: 200,
+            barrierOpacity: 100,
+            heatTransfer: 50
+        };
+        
+        // 分子
+        let molecules = [];
+        
+        // 容器
+        let barrier = {
+            x: width / 2,
+            opacity: 1,
+            active: true
+        };
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 统计数据
+        let stats = {
+            leftCount: 0,
+            rightCount: 0,
+            avgTempLeft: 0,
+            avgTempRight: 0,
+            entropy: 0,
+            order: 100
+        };
+        
+        // 颜色主题（温度映射）
+        function getTemperatureColor(temp) {
+            // 温度范围：100-1000K
+            const normalized = (temp - 100) / 900;
+            
+            // 低温：蓝色 → 中温：黄色 → 高温：红色
+            const r = Math.min(255, Math.floor(normalized * 2 * 255));
+            const g = Math.min(255, Math.floor((1 - Math.abs(normalized - 0.5) * 2) * 255));
+            const b = Math.max(0, Math.floor((1 - normalized) * 255));
+            
+            return { r, g, b };
+        }
+        
+        // 分子类
+        class Molecule {
+            constructor(x, y, vx, vy) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.radius = 5;
+                this.mass = 1;
+                
+                // 根据速度计算温度
+                this.temperature = (vx * vx + vy * vy) * 0.5;
+            }
+        
+            update() {
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 边界碰撞
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx *= -1;
+                }
+                if (this.x + this.radius > width) {
+                    this.x = width - this.radius;
+                    this.vx *= -1;
+                }
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy *= -1;
+                }
+                if (this.y + this.radius > height) {
+                    this.y = height - this.radius;
+                    this.vy *= -1;
+                }
+                
+                // 隔板碰撞
+                if (barrier.active && barrier.opacity > 0.5) {
+                    if (Math.abs(this.x - barrier.x) < this.radius) {
+                        // 根据隔板透明度决定是否通过
+                        if (Math.random() > barrier.opacity * 0.01) {
+                            // 允许通过
+                        } else {
+                            // 反弹
+                            if (this.x < barrier.x) {
+                                this.x = barrier.x - this.radius;
+                            } else {
+                                this.x = barrier.x + this.radius;
+                            }
+                            this.vx *= -1;
+                        }
+                    }
+                }
+                
+                // 更新温度
+                this.temperature = (this.vx * vx + this.vy * this.vy) * 0.5;
+            }
+            
+            draw() {
+                const color = getTemperatureColor(this.temperature);
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius * 2
+                );
+                
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0.8)`);
+                gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, 0.3)`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                ctx.fill();
+            }
+            
+            collideWith(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < this.radius + other.radius) {
+                    // 碰撞发生
+                    const angle = Math.atan2(dy, dx);
+                    const sin = Math.sin(angle);
+                    const cos = Math.cos(angle);
+                    
+                    // 旋转速度
+                    const vx1 = this.vx * cos + this.vy * sin;
+                    const vy1 = this.vy * cos - this.vx * sin;
+                    const vx2 = other.vx * cos + other.vy * sin;
+                    const vy2 = other.vy * cos - other.vx * sin;
+                    
+                    // 弹性碰撞（质量相等）
+                    const finalVx1 = vx2;
+                    const finalVx2 = vx1;
+                    
+                    // 旋转回去
+                    this.vx = finalVx1 * cos - vy1 * sin;
+                    this.vy = vy1 * cos + finalVx1 * sin;
+                    other.vx = finalVx2 * cos - vy2 * sin;
+                    other.vy = vy2 * cos + finalVx2 * sin;
+                    
+                    // 分离分子
+                    const overlap = (this.radius + other.radius - distance) / 2;
+                    this.x -= overlap * cos;
+                    this.y -= overlap * sin;
+                    other.x += overlap * cos;
+                    other.y += overlap * sin;
+                    
+                    // 热传导
+                    const heatTransferRate = config.heatTransfer * 0.01;
+                    const avgTemp = (this.temperature + other.temperature) / 2;
+                    this.temperature = this.temperature * (1 - heatTransferRate) + avgTemp * heatTransferRate;
+                    other.temperature = other.temperature * (1 - heatTransferRate) + avgTemp * heatTransferRate;
+                    
+                    // 根据温度更新速度
+                    const speed1 = Math.sqrt(this.temperature * 2);
+                    const angle1 = Math.atan2(this.vy, this.vx);
+                    this.vx = Math.cos(angle1) * speed1;
+                    this.vy = Math.sin(angle1) * speed1;
+                    
+                    const speed2 = Math.sqrt(other.temperature * 2);
+                    const angle2 = Math.atan2(other.vy, other.vx);
+                    other.vx = Math.cos(angle2) * speed2;
+                    other.vy = Math.sin(angle2) * speed2;
+                }
+            }
+        }
+        
+        // 初始化分子
+        function initMolecules() {
+            molecules = [];
+            
+            // 左侧：高温分子
+            for (let i = 0; i < config.moleculeCount / 2; i++) {
+                const x = Math.random() * (width / 2 - 50) + 25;
+                const y = Math.random() * (height - 50) + 25;
+                const speed = Math.sqrt(config.temperature * 2) * (0.8 + Math.random() * 0.4);
+                const angle = Math.random() * Math.PI * 2;
+                const vx = Math.cos(angle) * speed;
+                const vy = Math.sin(angle) * speed;
+                
+                molecules.push(new Molecule(x, y, vx, vy));
+            }
+            
+            // 右侧：低温分子
+            for (let i = 0; i < config.moleculeCount / 2; i++) {
+                const x = Math.random() * (width / 2 - 50) + width / 2 + 25;
+                const y = Math.random() * (height - 50) + 25;
+                const speed = Math.sqrt(config.temperature * 0.5) * (0.8 + Math.random() * 0.4);
+                const angle = Math.random() * Math.PI * 2;
+                const vx = Math.cos(angle) * speed;
+                const vy = Math.sin(angle) * speed;
+                
+                const molecule = new Molecule(x, y, vx, vy);
+                molecule.temperature = config.temperature * 0.5;
+                molecules.push(molecule);
+            }
+        }
+        
+        // 绘制容器和隔板
+        function drawContainer() {
+            // 容器边框
+            ctx.strokeStyle = 'rgba(255, 100, 50, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(10, 10, width - 20, height - 20);
+            
+            // 隔板
+            if (barrier.active && barrier.opacity > 0) {
+                ctx.beginPath();
+                ctx.moveTo(barrier.x, 10);
+                ctx.lineTo(barrier.x, height - 10);
+                ctx.strokeStyle = `rgba(255, 100, 50, ${barrier.opacity * 0.5})`;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                // 隔板标签
+                ctx.fillStyle = `rgba(255, 100, 50, ${barrier.opacity})`;
+                ctx.font = '12px Courier New';
+                ctx.fillText('隔板', barrier.x - 12, 30);
+            }
+            
+            // 温度标签
+            ctx.fillStyle = 'rgba(255, 100, 50, 0.7)';
+            ctx.font = '14px Courier New';
+            ctx.fillText('高温区', 30, 30);
+            ctx.fillText('低温区', width - 80, 30);
+        }
+        
+        // 更新统计数据
+        function updateStats() {
+            let leftCount = 0;
+            let rightCount = 0;
+            let leftTempSum = 0;
+            let rightTempSum = 0;
+            
+            molecules.forEach(molecule => {
+                if (molecule.x < barrier.x) {
+                    leftCount++;
+                    leftTempSum += molecule.temperature;
+                } else {
+                    rightCount++;
+                    rightTempSum += molecule.temperature;
+                }
+            });
+            
+            stats.leftCount = leftCount;
+            stats.rightCount = rightCount;
+            stats.avgTempLeft = leftCount > 0 ? leftTempSum / leftCount : 0;
+            stats.avgTempRight = rightCount > 0 ? rightTempSum / rightCount : 0;
+            
+            // 计算熵（简化模型）
+            const totalMolecules = leftCount + rightCount;
+            const pLeft = leftCount / totalMolecules;
+            const pRight = rightCount / totalMolecules;
+            
+            if (pLeft > 0 && pRight > 0) {
+                stats.entropy = -totalMolecules * (pLeft * Math.log(pLeft) + pRight * Math.log(pRight));
+            } else {
+                stats.entropy = 0;
+            }
+            
+            // 计算有序度
+            const idealDistribution = 0.5;
+            const actualDistribution = pLeft;
+            stats.order = Math.max(0, 100 - Math.abs(idealDistribution - actualDistribution) * 200);
+            
+            // 更新UI
+            document.getElementById('moleculeCount').textContent = totalMolecules;
+            document.getElementById('temperature').textContent = Math.round((stats.avgTempLeft + stats.avgTempRight) / 2);
+            document.getElementById('entropy').textContent = stats.entropy.toFixed(2);
+            document.getElementById('order').textContent = Math.round(stats.order);
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制容器
+            drawContainer();
+            
+            // 更新和绘制分子
+            molecules.forEach(molecule => {
+                molecule.update();
+            });
+            
+            // 分子碰撞检测
+            for (let i = 0; i < molecules.length; i++) {
+                for (let j = i + 1; j < molecules.length; j++) {
+                    molecules[i].collideWith(molecules[j]);
+                }
+            }
+            
+            // 绘制分子
+            molecules.forEach(molecule => {
+                molecule.draw();
+            });
+            
+            // 更新统计
+            updateStats();
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击添加热量
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 给附近的分子加热
+            molecules.forEach(molecule => {
+                const dx = molecule.x - x;
+                const dy = molecule.y - y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 100) {
+                    const heatBoost = (100 - distance) * 0.5;
+                    molecule.temperature += heatBoost;
+                    
+                    const speed = Math.sqrt(molecule.temperature * 2);
+                    const angle = Math.atan2(molecule.vy, molecule.vx);
+                    molecule.vx = Math.cos(angle) * speed;
+                    molecule.vy = Math.sin(angle) * speed;
+                }
+            });
+        });
+        
+        // 鼠标交互2：右键冷却
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 给附近的分子冷却
+            molecules.forEach(molecule => {
+                const dx = molecule.x - x;
+                const dy = molecule.y - y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 100) {
+                    const coolAmount = (100 - distance) * 0.3;
+                    molecule.temperature = Math.max(100, molecule.temperature - coolAmount);
+                    
+                    const speed = Math.sqrt(molecule.temperature * 2);
+                    const angle = Math.atan2(molecule.vy, molecule.vx);
+                    molecule.vx = Math.cos(angle) * speed;
+                    molecule.vy = Math.sin(angle) * speed;
+                }
+            });
+        });
+        
+        // 控制面板事件
+        document.getElementById('temperature').addEventListener('input', (e) => {
+            config.temperature = parseInt(e.target.value);
+            document.getElementById('temperatureValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('moleculeDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('moleculeDensityValue').textContent = newCount;
+            
+            config.moleculeCount = newCount;
+            initMolecules();
+        });
+        
+        document.getElementById('barrierOpacity').addEventListener('input', (e) => {
+            config.barrierOpacity = parseInt(e.target.value);
+            document.getElementById('barrierOpacityValue').textContent = e.target.value;
+            barrier.opacity = config.barrierOpacity / 100;
+            
+            if (barrier.opacity < 0.5) {
+                barrier.active = false;
+            }
+        });
+        
+        document.getElementById('heatTransfer').addEventListener('input', (e) => {
+            config.heatTransfer = parseInt(e.target.value);
+            document.getElementById('heatTransferValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('removeBarrierBtn').addEventListener('click', () => {
+            barrier.active = false;
+            barrier.opacity = 0;
+            document.getElementById('barrierOpacity').value = 0;
+            document.getElementById('barrierOpacityValue').textContent = 0;
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            barrier.active = true;
+            barrier.opacity = 1;
+            barrier.x = width / 2;
+            document.getElementById('barrierOpacity').value = 100;
+            document.getElementById('barrierOpacityValue').textContent = 100;
+            initMolecules();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            barrier.x = width / 2;
+            initMolecules();
+        });
+        
+        // 性能优化：移动设备减少分子数量
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.moleculeCount = 100;
+            document.getElementById('moleculeDensity').value = 100;
+            document.getElementById('moleculeDensityValue').textContent = 100;
+        }
+        
+        // 初始化并启动
+        initMolecules();
+        animate(performance.now());
+    </script>
+</body>
+</html>
