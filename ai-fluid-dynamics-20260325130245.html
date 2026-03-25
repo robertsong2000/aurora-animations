@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流体动力学 - Fluid Dynamics</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a1a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(100, 180, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 180, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #64b4ff;
+            text-shadow: 0 0 10px rgba(100, 180, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 180, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 180, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #64b4ff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #64b4ff 0%, #4a90e2 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(100, 180, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌊 流体动力学</h3>
+        <div>流体粒子: <span id="particleCount">0</span></div>
+        <div>涡旋数量: <span id="vortexCount">0</span></div>
+        <div>流速: <span id="flowSpeed">0</span> m/s</div>
+        <div>粘度: <span id="viscosity">0</span> Pa·s</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>流速:</label>
+            <input type="range" id="flowSpeed" min="1" max="20" value="10">
+            <span class="value" id="flowSpeedValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>粘度:</label>
+            <input type="range" id="viscosity" min="1" max="100" value="50">
+            <span class="value" id="viscosityValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>粒子数量:</label>
+            <input type="range" id="particleDensity" min="100" max="1000" value="500">
+            <span class="value" id="particleDensityValue">500</span>
+        </div>
+        <div class="control-item">
+            <label>涡旋强度:</label>
+            <input type="range" id="vortexStrength" min="1" max="100" value="50">
+            <span class="value" id="vortexStrengthValue">50</span>
+        </div>
+        <button id="addVortexBtn">添加涡旋</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            flowSpeed: 10,
+            viscosity: 50,
+            particleCount: 500,
+            vortexStrength: 50
+        };
+        
+        // 流体粒子
+        let particles = [];
+        
+        // 涡旋
+        let vortices = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 流体粒子类
+        class FluidParticle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.maxLife = Math.random() * 200 + 100;
+                this.age = 0;
+            }
+            
+            update() {
+                // 基础流动（向右）
+                this.vx += config.flowSpeed * 0.01;
+                
+                // 涡旋影响
+                vortices.forEach(vortex => {
+                    const dx = this.x - vortex.x;
+                    const dy = this.y - vortex.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < vortex.radius && distance > 5) {
+                        // 涡旋切向速度
+                        const tangentX = -dy / distance;
+                        const tangentY = dx / distance;
+                        
+                        // 涡旋强度随距离衰减
+                        const strength = (1 - distance / vortex.radius) * vortex.strength;
+                        
+                        this.vx += tangentX * strength * 0.1;
+                        this.vy += tangentY * strength * 0.1;
+                        
+                        // 向心力（吸入效果）
+                        this.vx -= (dx / distance) * strength * 0.02;
+                        this.vy -= (dy / distance) * strength * 0.02;
+                    }
+                });
+                
+                // 粘度（阻力）
+                const drag = 1 - (config.viscosity * 0.001);
+                this.vx *= drag;
+                this.vy *= drag;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 年龄增长
+                this.age++;
+                this.life = 1 - (this.age / this.maxLife);
+                
+                // 边界循环
+                if (this.x > width) this.x = 0;
+                if (this.x < 0) this.x = width;
+                if (this.y > height) this.y = 0;
+                if (this.y < 0) this.y = height;
+                
+                // 生命周期结束
+                if (this.age >= this.maxLife) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const hue = 200 + speed * 10;
+                const alpha = this.life * 0.8;
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                
+                gradient.addColorStop(0, `hsla(${hue}, 70%, 60%, ${alpha})`);
+                gradient.addColorStop(0.5, `hsla(${hue}, 70%, 50%, ${alpha * 0.5})`);
+                gradient.addColorStop(1, `hsla(${hue}, 70%, 40%, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue}, 80%, 70%, ${alpha})`;
+                ctx.fill();
+                
+                // 速度尾迹
+                if (speed > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - this.vx * 5, this.y - this.vy * 5);
+                    ctx.strokeStyle = `hsla(${hue}, 70%, 60%, ${alpha * 0.3})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 涡旋类
+        class Vortex {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 150 + 100;
+                this.strength = config.vortexStrength * 0.01;
+                this.rotation = 0;
+                this.life = 1;
+                this.decay = 0.0001;
+            }
+            
+            update() {
+                this.rotation += this.strength * 0.1;
+                this.life -= this.decay;
+                
+                return this.life > 0;
+            }
+            
+            draw() {
+                // 涡旋范围
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(100, 180, 255, ${this.life * 0.2})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 涡旋旋转线
+                for (let i = 0; i < 3; i++) {
+                    const angle = this.rotation + (i * Math.PI * 2 / 3);
+                    const endX = this.x + Math.cos(angle) * this.radius * 0.8;
+                    const endY = this.y + Math.sin(angle) * this.radius * 0.8;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(endX, endY);
+                    ctx.strokeStyle = `rgba(100, 180, 255, ${this.life * 0.3})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+                
+                // 中心点
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(100, 180, 255, ${this.life * 0.8})`;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制流线（流场可视化）
+        function drawStreamlines() {
+            const gridSize = 50;
+            
+            for (let x = 0; x < width; x += gridSize) {
+                for (let y = 0; y < height; y += gridSize) {
+                    let vx = config.flowSpeed * 0.5;
+                    let vy = 0;
+                    
+                    // 涡旋影响
+                    vortices.forEach(vortex => {
+                        const dx = x - vortex.x;
+                        const dy = y - vortex.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < vortex.radius && distance > 5) {
+                            const tangentX = -dy / distance;
+                            const tangentY = dx / distance;
+                            const strength = (1 - distance / vortex.radius) * vortex.strength * 0.1;
+                            
+                            vx += tangentX * strength;
+                            vy += tangentY * strength;
+                        }
+                    });
+                    
+                    // 绘制流线箭头
+                    const length = Math.sqrt(vx * vx + vy * vy) * 2;
+                    const angle = Math.atan2(vy, vx);
+                    
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(angle);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(length, 0);
+                    ctx.strokeStyle = 'rgba(100, 180, 255, 0.1)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    
+                    // 箭头
+                    ctx.beginPath();
+                    ctx.moveTo(length, 0);
+                    ctx.lineTo(length - 5, -3);
+                    ctx.lineTo(length - 5, 3);
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(100, 180, 255, 0.1)';
+                    ctx.fill();
+                    
+                    ctx.restore();
+                }
+            }
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new FluidParticle());
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制流线
+            drawStreamlines();
+            
+            // 更新和绘制涡旋
+            vortices = vortices.filter(vortex => vortex.update());
+            vortices.forEach(vortex => vortex.draw());
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新统计
+            document.getElementById('particleCount').textContent = particles.length;
+            document.getElementById('vortexCount').textContent = vortices.length;
+            document.getElementById('flowSpeed').textContent = config.flowSpeed;
+            document.getElementById('viscosity').textContent = (config.viscosity * 0.01).toFixed(2);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击创建涡旋
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (vortices.length < 10) {
+                vortices.push(new Vortex(x, y));
+            }
+        });
+        
+        // 鼠标交互2：拖动创建流动
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = canvas.getBoundingClientRect();
+            lastMouseX = e.clientX - rect.left;
+            lastMouseY = e.clientY - rect.top;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // 在鼠标路径上添加粒子
+                if (Math.random() < 0.5) {
+                    const particle = new FluidParticle();
+                    particle.x = mouseX;
+                    particle.y = mouseY;
+                    particle.vx = (mouseX - lastMouseX) * 0.5;
+                    particle.vy = (mouseY - lastMouseY) * 0.5;
+                    particles.push(particle);
+                    
+                    // 限制粒子数量
+                    if (particles.length > config.particleCount * 1.5) {
+                        particles.shift();
+                    }
+                }
+                
+                lastMouseX = mouseX;
+                lastMouseY = mouseY;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // 控制面板事件
+        document.getElementById('flowSpeed').addEventListener('input', (e) => {
+            config.flowSpeed = parseInt(e.target.value);
+            document.getElementById('flowSpeedValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('viscosity').addEventListener('input', (e) => {
+            config.viscosity = parseInt(e.target.value);
+            document.getElementById('viscosityValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new FluidParticle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleCount = newCount;
+        });
+        
+        document.getElementById('vortexStrength').addEventListener('input', (e) => {
+            config.vortexStrength = parseInt(e.target.value);
+            document.getElementById('vortexStrengthValue').textContent = e.target.value;
+            
+            // 更新现有涡旋强度
+            vortices.forEach(vortex => {
+                vortex.strength = config.vortexStrength * 0.01;
+            });
+        });
+        
+        document.getElementById('addVortexBtn').addEventListener('click', () => {
+            if (vortices.length < 10) {
+                vortices.push(new Vortex(
+                    Math.random() * width,
+                    Math.random() * height
+                ));
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            vortices = [];
+            initParticles();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleCount = 300;
+            document.getElementById('particleDensity').value = 300;
+            document.getElementById('particleDensityValue').textContent = 300;
+        }
+        
+        // 初始化并启动
+        initParticles();
+        animate(performance.now());
+        
+        // 启动时创建一个涡旋
+        setTimeout(() => {
+            vortices.push(new Vortex(width / 2, height / 2));
+        }, 1000);
+    </script>
+</body>
+</html>
