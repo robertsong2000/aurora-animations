@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分形几何 - Fractal Geometry</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 200, 100, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 200, 100, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ffc864;
+            text-shadow: 0 0 10px rgba(255, 200, 100, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 200, 100, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 200, 100, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ffc864;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ffc864 0%, #ff9632 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 200, 100, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌀 分形几何</h3>
+        <div>分形类型: <span id="fractalType">曼德勃罗</span></div>
+        <div>缩放: <span id="zoom">1.00</span>x</div>
+        <div>迭代: <span id="iterations">100</span></div>
+        <div>中心: <span id="center">(0.00, 0.00)</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>迭代次数:</label>
+            <input type="range" id="maxIterations" min="10" max="500" value="100">
+            <span class="value" id="maxIterationsValue">100</span>
+        </div>
+        <div class="control-item">
+            <label>颜色方案:</label>
+            <input type="range" id="colorScheme" min="0" max="5" value="0">
+            <span class="value" id="colorSchemeValue">0</span>
+        </div>
+        <div class="control-item">
+            <label>朱利亚参数:</label>
+            <input type="range" id="juliaParam" min="0" max="100" value="0">
+            <span class="value" id="juliaParamValue">0</span>
+        </div>
+        <button id="switchFractalBtn">切换分形</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            maxIterations: 100,
+            colorScheme: 0,
+            juliaC: { x: -0.7, y: 0.27015 }
+        };
+        
+        // 视图参数
+        let view = {
+            centerX: -0.5,
+            centerY: 0,
+            zoom: 1
+        };
+        
+        // 分形类型：'mandelbrot' 或 'julia'
+        let fractalType = 'mandelbrot';
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色方案
+        const colorSchemes = [
+            // 方案0：经典
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                return [
+                    Math.floor(9 * (1 - t) * t * t * t * 255),
+                    Math.floor(15 * (1 - t) * (1 - t) * t * t * 255),
+                    Math.floor(8.5 * (1 - t) * (1 - t) * (1 - t) * t * 255)
+                ];
+            },
+            // 方案1：火焰
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                return [
+                    Math.floor(255 * Math.min(1, t * 3)),
+                    Math.floor(255 * Math.max(0, Math.min(1, t * 3 - 1))),
+                    Math.floor(255 * Math.max(0, t * 3 - 2))
+                ];
+            },
+            // 方案2：海洋
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                return [
+                    Math.floor(255 * t * t),
+                    Math.floor(255 * t),
+                    Math.floor(255 * Math.sqrt(t))
+                ];
+            },
+            // 方案3：彩虹
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                const h = t * 360;
+                const s = 1;
+                const l = 0.5;
+                
+                const c = (1 - Math.abs(2 * l - 1)) * s;
+                const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+                const m = l - c / 2;
+                
+                let r, g, b;
+                if (h < 60) { r = c; g = x; b = 0; }
+                else if (h < 120) { r = x; g = c; b = 0; }
+                else if (h < 180) { r = 0; g = c; b = x; }
+                else if (h < 240) { r = 0; g = x; b = c; }
+                else if (h < 300) { r = x; g = 0; b = c; }
+                else { r = c; g = 0; b = x; }
+                
+                return [
+                    Math.floor((r + m) * 255),
+                    Math.floor((g + m) * 255),
+                    Math.floor((b + m) * 255)
+                ];
+            },
+            // 方案4：黑白
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                const v = Math.floor(255 * t);
+                return [v, v, v];
+            },
+            // 方案5：电光
+            (i, max) => {
+                if (i === max) return [0, 0, 0];
+                const t = i / max;
+                return [
+                    Math.floor(255 * Math.sin(t * Math.PI)),
+                    Math.floor(255 * Math.sin(t * Math.PI * 2)),
+                    Math.floor(255 * Math.cos(t * Math.PI))
+                ];
+            }
+        ];
+        
+        // 计算曼德勃罗集
+        function mandelbrot(cx, cy) {
+            let x = 0;
+            let y = 0;
+            let iteration = 0;
+            
+            while (x * x + y * y <= 4 && iteration < config.maxIterations) {
+                const xTemp = x * x - y * y + cx;
+                y = 2 * x * y + cy;
+                x = xTemp;
+                iteration++;
+            }
+            
+            return iteration;
+        }
+        
+        // 计算朱利亚集
+        function julia(zx, zy) {
+            let iteration = 0;
+            
+            while (zx * zx + zy * zy <= 4 && iteration < config.maxIterations) {
+                const xTemp = zx * zx - zy * zy + config.juliaC.x;
+                zy = 2 * zx * zy + config.juliaC.y;
+                zx = xTemp;
+                iteration++;
+            }
+            
+            return iteration;
+        }
+        
+        // 绘制分形
+        function drawFractal() {
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            const scale = 4 / (Math.min(width, height) * view.zoom);
+            
+            for (let px = 0; px < width; px++) {
+                for (let py = 0; py < height; py++) {
+                    const x = (px - width / 2) * scale + view.centerX;
+                    const y = (py - height / 2) * scale + view.centerY;
+                    
+                    let iteration;
+                    if (fractalType === 'mandelbrot') {
+                        iteration = mandelbrot(x, y);
+                    } else {
+                        iteration = julia(x, y);
+                    }
+                    
+                    const color = colorSchemes[config.colorScheme](iteration, config.maxIterations);
+                    
+                    const index = (py * width + px) * 4;
+                    data[index] = color[0];
+                    data[index + 1] = color[1];
+                    data[index + 2] = color[2];
+                    data[index + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 绘制分形
+            drawFractal();
+            
+            // 更新信息
+            document.getElementById('fractalType').textContent = 
+                fractalType === 'mandelbrot' ? '曼德勃罗' : '朱利亚';
+            document.getElementById('zoom').textContent = view.zoom.toFixed(2);
+            document.getElementById('iterations').textContent = config.maxIterations;
+            document.getElementById('center').textContent = 
+                `(${view.centerX.toFixed(2)}, ${view.centerY.toFixed(2)})`;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击缩放
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 计算点击位置对应的复平面坐标
+            const scale = 4 / (Math.min(width, height) * view.zoom);
+            view.centerX = (mouseX - width / 2) * scale + view.centerX;
+            view.centerY = (mouseY - height / 2) * scale + view.centerY;
+            
+            // 放大
+            view.zoom *= 2;
+        });
+        
+        // 鼠标交互2：右键缩小
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            view.zoom = Math.max(0.5, view.zoom / 2);
+        });
+        
+        // 鼠标交互3：拖动平移
+        let isDragging = false;
+        let lastMouseX, lastMouseY;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - lastMouseX;
+                const dy = e.clientY - lastMouseY;
+                
+                const scale = 4 / (Math.min(width, height) * view.zoom);
+                view.centerX -= dx * scale;
+                view.centerY -= dy * scale;
+                
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // 控制面板事件
+        document.getElementById('maxIterations').addEventListener('input', (e) => {
+            config.maxIterations = parseInt(e.target.value);
+            document.getElementById('maxIterationsValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('colorScheme').addEventListener('input', (e) => {
+            config.colorScheme = parseInt(e.target.value);
+            document.getElementById('colorSchemeValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('juliaParam').addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            document.getElementById('juliaParamValue').textContent = value;
+            
+            // 调整朱利亚参数
+            const angle = value / 100 * Math.PI * 2;
+            const radius = 0.7885;
+            config.juliaC.x = radius * Math.cos(angle);
+            config.juliaC.y = radius * Math.sin(angle);
+        });
+        
+        document.getElementById('switchFractalBtn').addEventListener('click', () => {
+            fractalType = fractalType === 'mandelbrot' ? 'julia' : 'mandelbrot';
+            view.centerX = fractalType === 'mandelbrot' ? -0.5 : 0;
+            view.centerY = 0;
+            view.zoom = 1;
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            view.centerX = fractalType === 'mandelbrot' ? -0.5 : 0;
+            view.centerY = 0;
+            view.zoom = 1;
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // 性能优化：移动设备减少迭代
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.maxIterations = 50;
+            document.getElementById('maxIterations').value = 50;
+            document.getElementById('maxIterationsValue').textContent = 50;
+        }
+        
+        // 启动动画
+        animate(performance.now());
+    </script>
+</body>
+</html>
