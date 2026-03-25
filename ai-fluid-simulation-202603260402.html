@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流体模拟 - Fluid Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00f5ff, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🌊 流体模拟</h1>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标移动：产生流体流动</p>
+        <p>• 点击拖动：增加流体密度</p>
+        <p>• 右键点击：清除流体</p>
+        <p>• 滚轮：调整流体粘度</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="clearFluid()">清除流体</button>
+        <button onclick="toggleRain()">切换降雨</button>
+        <button onclick="randomColor()">随机颜色</button>
+    </div>
+
+    <div class="stats">
+        <div>FPS: <span id="fps">0</span></div>
+        <div>粒子数: <span id="particles">0</span></div>
+        <div>粘度: <span id="viscosity">0.000</span></div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 流体参数
+        const SCALE = 4; // 分辨率缩放
+        let cols, rows;
+        let viscosity = 0.000; // 粘度
+        let diffusion = 0.000; // 扩散系数
+        
+        // 流体场
+        let velocityX, velocityY, density;
+        let velocityX0, velocityY0, density0;
+        
+        // 粒子系统
+        let particles = [];
+        const MAX_PARTICLES = 2000;
+        
+        // 交互状态
+        let mouseX = 0, mouseY = 0;
+        let pmouseX = 0, pmouseY = 0;
+        let isMouseDown = false;
+        let isRainEnabled = false;
+        let hueOffset = 0;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 初始化流体场
+            cols = Math.floor(canvas.width / SCALE);
+            rows = Math.floor(canvas.height / SCALE);
+            
+            const size = cols * rows;
+            velocityX = new Float32Array(size);
+            velocityY = new Float32Array(size);
+            density = new Float32Array(size);
+            velocityX0 = new Float32Array(size);
+            velocityY0 = new Float32Array(size);
+            density0 = new Float32Array(size);
+            
+            // 初始化粒子
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: 0,
+                    vy: 0,
+                    life: Math.random() * 100
+                });
+            }
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMoved);
+            canvas.addEventListener('mousedown', mousePressed);
+            canvas.addEventListener('mouseup', mouseReleased);
+            canvas.addEventListener('contextmenu', rightClick);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // 重新初始化流体场
+            const newCols = Math.floor(canvas.width / SCALE);
+            const newRows = Math.floor(canvas.height / SCALE);
+            const newSize = newCols * newRows;
+            
+            const newVelocityX = new Float32Array(newSize);
+            const newVelocityY = new Float32Array(newSize);
+            const newDensity = new Float32Array(newSize);
+            
+            // 复制旧数据
+            if (cols && rows) {
+                for (let i = 0; i < Math.min(rows, newRows); i++) {
+                    for (let j = 0; j < Math.min(cols, newCols); j++) {
+                        const oldIdx = i * cols + j;
+                        const newIdx = i * newCols + j;
+                        newVelocityX[newIdx] = velocityX[oldIdx];
+                        newVelocityY[newIdx] = velocityY[oldIdx];
+                        newDensity[newIdx] = density[oldIdx];
+                    }
+                }
+            }
+            
+            cols = newCols;
+            rows = newRows;
+            velocityX = newVelocityX;
+            velocityY = newVelocityY;
+            density = newDensity;
+            velocityX0 = new Float32Array(newSize);
+            velocityY0 = new Float32Array(newSize);
+            density0 = new Float32Array(newSize);
+        }
+
+        // 索引转换
+        function IX(x, y) {
+            x = Math.max(0, Math.min(cols - 1, x));
+            y = Math.max(0, Math.min(rows - 1, y));
+            return y * cols + x;
+        }
+
+        // 添加流体
+        function addDensity(x, y, amount) {
+            const i = Math.floor(x / SCALE);
+            const j = Math.floor(y / SCALE);
+            density[IX(i, j)] += amount;
+        }
+
+        function addVelocity(x, y, amountX, amountY) {
+            const i = Math.floor(x / SCALE);
+            const j = Math.floor(y / SCALE);
+            const idx = IX(i, j);
+            velocityX[idx] += amountX;
+            velocityY[idx] += amountY;
+        }
+
+        // 扩散
+        function diffuse(b, x, x0, diff, dt) {
+            const a = dt * diff * (cols - 2) * (rows - 2);
+            linearSolve(b, x, x0, a, 1 + 6 * a);
+        }
+
+        // 线性求解
+        function linearSolve(b, x, x0, a, c) {
+            const cRecip = 1.0 / c;
+            for (let k = 0; k < 4; k++) {
+                for (let j = 1; j < rows - 1; j++) {
+                    for (let i = 1; i < cols - 1; i++) {
+                        x[IX(i, j)] = (x0[IX(i, j)] + a * (
+                            x[IX(i + 1, j)] + x[IX(i - 1, j)] +
+                            x[IX(i, j + 1)] + x[IX(i, j - 1)]
+                        )) * cRecip;
+                    }
+                }
+                setBoundary(b, x);
+            }
+        }
+
+        // 投影
+        function project(velocX, velocY, p, div) {
+            for (let j = 1; j < rows - 1; j++) {
+                for (let i = 1; i < cols - 1; i++) {
+                    div[IX(i, j)] = -0.5 * (
+                        velocX[IX(i + 1, j)] - velocX[IX(i - 1, j)] +
+                        velocY[IX(i, j + 1)] - velocY[IX(i, j - 1)]
+                    ) / SCALE;
+                    p[IX(i, j)] = 0;
+                }
+            }
+            
+            setBoundary(0, div);
+            setBoundary(0, p);
+            linearSolve(0, p, div, 1, 6);
+            
+            for (let j = 1; j < rows - 1; j++) {
+                for (let i = 1; i < cols - 1; i++) {
+                    velocX[IX(i, j)] -= 0.5 * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * SCALE;
+                    velocY[IX(i, j)] -= 0.5 * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * SCALE;
+                }
+            }
+            
+            setBoundary(1, velocX);
+            setBoundary(2, velocY);
+        }
+
+        // 对流
+        function advect(b, d, d0, velocX, velocY, dt) {
+            const dtx = dt * (cols - 2);
+            const dty = dt * (rows - 2);
+            
+            for (let j = 1; j < rows - 1; j++) {
+                for (let i = 1; i < cols - 1; i++) {
+                    let x = i - dtx * velocX[IX(i, j)];
+                    let y = j - dty * velocY[IX(i, j)];
+                    
+                    x = Math.max(0.5, Math.min(cols - 1.5, x));
+                    y = Math.max(0.5, Math.min(rows - 1.5, y));
+                    
+                    const i0 = Math.floor(x);
+                    const i1 = i0 + 1;
+                    const j0 = Math.floor(y);
+                    const j1 = j0 + 1;
+                    
+                    const s1 = x - i0;
+                    const s0 = 1 - s1;
+                    const t1 = y - j0;
+                    const t0 = 1 - t1;
+                    
+                    d[IX(i, j)] = s0 * (t0 * d0[IX(i0, j0)] + t1 * d0[IX(i0, j1)]) +
+                                  s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
+                }
+            }
+            
+            setBoundary(b, d);
+        }
+
+        // 设置边界
+        function setBoundary(b, x) {
+            for (let i = 1; i < cols - 1; i++) {
+                x[IX(i, 0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+                x[IX(i, rows - 1)] = b === 2 ? -x[IX(i, rows - 2)] : x[IX(i, rows - 2)];
+            }
+            
+            for (let j = 1; j < rows - 1; j++) {
+                x[IX(0, j)] = b === 1 ? -x[IX(1, j)] : x[IX(1, j)];
+                x[IX(cols - 1, j)] = b === 1 ? -x[IX(cols - 2, j)] : x[IX(cols - 2, j)];
+            }
+            
+            x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]);
+            x[IX(0, rows - 1)] = 0.5 * (x[IX(1, rows - 1)] + x[IX(0, rows - 2)]);
+            x[IX(cols - 1, 0)] = 0.5 * (x[IX(cols - 2, 0)] + x[IX(cols - 1, 1)]);
+            x[IX(cols - 1, rows - 1)] = 0.5 * (x[IX(cols - 2, rows - 1)] + x[IX(cols - 1, rows - 2)]);
+        }
+
+        // 流体步进
+        function step() {
+            const dt = 0.2;
+            
+            // 扩散速度
+            diffuse(1, velocityX0, velocityX, viscosity, dt);
+            diffuse(2, velocityY0, velocityY, viscosity, dt);
+            
+            // 投影
+            project(velocityX0, velocityY0, velocityX, velocityY);
+            
+            // 对流速度
+            advect(1, velocityX, velocityX0, velocityX0, velocityY0, dt);
+            advect(2, velocityY, velocityY0, velocityX0, velocityY0, dt);
+            
+            // 投影
+            project(velocityX, velocityY, velocityX0, velocityY0);
+            
+            // 扩散密度
+            diffuse(0, density0, density, diffusion, dt);
+            
+            // 对流密度
+            advect(0, density, density0, velocityX, velocityY, dt);
+            
+            // 衰减
+            for (let i = 0; i < density.length; i++) {
+                density[i] *= 0.99;
+            }
+        }
+
+        // 更新粒子
+        function updateParticles() {
+            for (let particle of particles) {
+                const i = Math.floor(particle.x / SCALE);
+                const j = Math.floor(particle.y / SCALE);
+                const idx = IX(i, j);
+                
+                // 跟随流体
+                particle.vx = velocityX[idx] * 10;
+                particle.vy = velocityY[idx] * 10;
+                
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                
+                // 生命周期
+                particle.life -= 0.5;
+                
+                // 边界检测
+                if (particle.x < 0 || particle.x > canvas.width ||
+                    particle.y < 0 || particle.y > canvas.height ||
+                    particle.life <= 0) {
+                    particle.x = Math.random() * canvas.width;
+                    particle.y = Math.random() * canvas.height;
+                    particle.vx = 0;
+                    particle.vy = 0;
+                    particle.life = 100 + Math.random() * 100;
+                }
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制流体密度场
+            for (let i = 0; i < cols; i++) {
+                for (let j = 0; j < rows; j++) {
+                    const d = density[IX(i, j)];
+                    if (d > 0.01) {
+                        const hue = (hueOffset + d * 10) % 360;
+                        const alpha = Math.min(d, 1);
+                        ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+                        ctx.fillRect(i * SCALE, j * SCALE, SCALE, SCALE);
+                    }
+                }
+            }
+            
+            // 绘制粒子
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            for (let particle of particles) {
+                const alpha = particle.life / 200;
+                ctx.globalAlpha = alpha;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // 降雨效果
+        function rain() {
+            if (!isRainEnabled) return;
+            
+            const x = Math.random() * canvas.width;
+            const y = 0;
+            addDensity(x, y, 500);
+            addVelocity(x, y, 0, 50);
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+                document.getElementById('particles').textContent = particles.length;
+                document.getElementById('viscosity').textContent = viscosity.toFixed(3);
+            }
+            
+            // 添加鼠标交互
+            if (isMouseDown) {
+                addDensity(mouseX, mouseY, 1000);
+            }
+            
+            const dx = mouseX - pmouseX;
+            const dy = mouseY - pmouseY;
+            addVelocity(mouseX, mouseY, dx, dy);
+            
+            // 降雨
+            rain();
+            
+            // 更新
+            step();
+            updateParticles();
+            
+            // 绘制
+            draw();
+            
+            // 更新上一帧鼠标位置
+            pmouseX = mouseX;
+            pmouseY = mouseY;
+            
+            // 颜色偏移
+            hueOffset = (hueOffset + 0.5) % 360;
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseMoved(e) {
+            pmouseX = mouseX;
+            pmouseY = mouseY;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        }
+
+        function mousePressed(e) {
+            isMouseDown = true;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        }
+
+        function mouseReleased() {
+            isMouseDown = false;
+        }
+
+        function rightClick(e) {
+            e.preventDefault();
+            clearFluid();
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            viscosity += e.deltaY * 0.0001;
+            viscosity = Math.max(0, Math.min(0.1, viscosity));
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            isMouseDown = true;
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            pmouseX = mouseX;
+            pmouseY = mouseY;
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        }
+
+        function touchEnd() {
+            isMouseDown = false;
+        }
+
+        // 控制函数
+        function clearFluid() {
+            density.fill(0);
+            velocityX.fill(0);
+            velocityY.fill(0);
+        }
+
+        function toggleRain() {
+            isRainEnabled = !isRainEnabled;
+        }
+
+        function randomColor() {
+            hueOffset = Math.random() * 360;
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
