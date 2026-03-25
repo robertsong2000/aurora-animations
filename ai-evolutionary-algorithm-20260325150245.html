@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>进化算法 - Evolutionary Algorithm</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a1a0a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(100, 255, 150, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 255, 150, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #64ff96;
+            text-shadow: 0 0 10px rgba(100, 255, 150, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 255, 150, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 255, 150, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #64ff96;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #64ff96 0%, #32c864 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(100, 255, 150, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🧬 进化算法</h3>
+        <div>代数: <span id="generation">0</span></div>
+        <div>种群数量: <span id="populationSize">0</span></div>
+        <div>平均适应度: <span id="avgFitness">0</span>%</div>
+        <div>最佳适应度: <span id="bestFitness">0</span>%</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>种群大小:</label>
+            <input type="range" id="populationSize" min="20" max="200" value="100">
+            <span class="value" id="populationSizeValue">100</span>
+        </div>
+        <div class="control-item">
+            <label>变异率:</label>
+            <input type="range" id="mutationRate" min="1" max="50" value="10">
+            <span class="value" id="mutationRateValue">10</span>%
+        </div>
+        <div class="control-item">
+            <label>选择压力:</label>
+            <input type="range" id="selectionPressure" min="1" max="100" value="50">
+            <span class="value" id="selectionPressureValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>目标位置:</label>
+            <input type="range" id="targetPosition" min="1" max="10" value="5">
+            <span class="value" id="targetPositionValue">5</span>
+        </div>
+        <button id="nextGenBtn">下一代</button>
+        <button id="autoEvolveBtn">自动进化</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            populationSize: 100,
+            mutationRate: 0.1,
+            selectionPressure: 50,
+            targetPosition: 5
+        };
+        
+        // 种群
+        let population = [];
+        
+        // 目标（食物源）
+        let target = {
+            x: width * 0.8,
+            y: height / 2,
+            radius: 30
+        };
+        
+        // 当前代数
+        let generation = 0;
+        
+        // 自动进化
+        let autoEvolve = false;
+        let lastEvolution = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 个体类（生物）
+        class Organism {
+            constructor(dna = null) {
+                this.x = width * 0.2;
+                this.y = height / 2 + (Math.random() - 0.5) * 200;
+                this.vx = 0;
+                this.vy = 0;
+                this.radius = 8;
+                this.fitness = 0;
+                
+                // DNA：控制运动行为的基因
+                if (dna) {
+                    this.dna = dna;
+                } else {
+                    this.dna = {
+                        speed: Math.random() * 2 + 1,
+                        angle: Math.random() * Math.PI * 2,
+                        turnRate: Math.random() * 0.5,
+                        attraction: Math.random() * 2
+                    };
+                }
+                
+                this.color = this.generateColor();
+                this.alive = true;
+                this.reachedTarget = false;
+            }
+            
+            generateColor() {
+                // 根据DNA生成颜色
+                const hue = (this.dna.speed * 30 + this.dna.attraction * 40) % 360;
+                return { h: hue, s: 70, l: 50 };
+            }
+            
+            update() {
+                if (!this.alive) return;
+                
+                // 向目标移动
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    // 吸引力
+                    const angle = Math.atan2(dy, dx);
+                    this.dna.angle += (angle - this.dna.angle) * this.dna.attraction * 0.01;
+                    
+                    // 添加随机转向
+                    this.dna.angle += (Math.random() - 0.5) * this.dna.turnRate;
+                    
+                    // 更新速度
+                    this.vx = Math.cos(this.dna.angle) * this.dna.speed;
+                    this.vy = Math.sin(this.dna.angle) * this.dna.speed;
+                }
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 边界检查
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.alive = false;
+                }
+                
+                // 检查是否到达目标
+                if (distance < target.radius) {
+                    this.reachedTarget = true;
+                    this.alive = false;
+                }
+            }
+            
+            calculateFitness() {
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const maxDistance = Math.sqrt(width * width + height * height);
+                
+                // 适应度：距离越近越好
+                this.fitness = 1 - (distance / maxDistance);
+                
+                // 到达目标的奖励
+                if (this.reachedTarget) {
+                    this.fitness = 1.0;
+                }
+                
+                // 死亡惩罚
+                if (!this.alive && !this.reachedTarget) {
+                    this.fitness *= 0.5;
+                }
+                
+                return this.fitness;
+            }
+            
+            draw() {
+                if (!this.alive && !this.reachedTarget) return;
+                
+                const alpha = this.alive ? 0.8 : 0.3;
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius * 2
+                );
+                
+                gradient.addColorStop(0, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, ${alpha})`);
+                gradient.addColorStop(0.5, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, ${alpha * 0.3})`);
+                gradient.addColorStop(1, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, ${alpha})`;
+                ctx.fill();
+                
+                // 速度方向
+                if (this.alive) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + this.vx * 5, this.y + this.vy * 5);
+                    ctx.strokeStyle = `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, ${alpha * 0.5})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+            
+            // 复制并变异
+            reproduce() {
+                const childDNA = {
+                    speed: this.dna.speed,
+                    angle: this.dna.angle,
+                    turnRate: this.dna.turnRate,
+                    attraction: this.dna.attraction
+                };
+                
+                // 变异
+                if (Math.random() < config.mutationRate) {
+                    const gene = ['speed', 'angle', 'turnRate', 'attraction'][Math.floor(Math.random() * 4)];
+                    childDNA[gene] *= (Math.random() * 0.5 + 0.75); // ±25% 变异
+                }
+                
+                return new Organism(childDNA);
+            }
+        }
+        
+        // 初始化种群
+        function initPopulation() {
+            population = [];
+            generation = 0;
+            
+            for (let i = 0; i < config.populationSize; i++) {
+                population.push(new Organism());
+            }
+        }
+        
+        // 自然选择
+        function naturalSelection() {
+            // 计算所有个体的适应度
+            population.forEach(org => org.calculateFitness());
+            
+            // 按适应度排序
+            population.sort((a, b) => b.fitness - a.fitness);
+            
+            // 选择压力：保留前N%
+            const survivalRate = (100 - config.selectionPressure) / 100;
+            const survivors = population.slice(0, Math.ceil(population.length * survivalRate));
+            
+            // 创建新一代
+            const newPopulation = [];
+            
+            while (newPopulation.length < config.populationSize) {
+                // 从幸存者中随机选择父母
+                const parent = survivors[Math.floor(Math.random() * survivors.length)];
+                
+                // 复制并变异
+                const child = parent.reproduce();
+                newPopulation.push(child);
+            }
+            
+            population = newPopulation;
+            generation++;
+        }
+        
+        // 绘制目标
+        function drawTarget() {
+            // 发光效果
+            const gradient = ctx.createRadialGradient(
+                target.x, target.y, 0,
+                target.x, target.y, target.radius * 3
+            );
+            
+            gradient.addColorStop(0, 'rgba(255, 215, 0, 0.8)');
+            gradient.addColorStop(0.3, 'rgba(255, 215, 0, 0.3)');
+            gradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
+            
+            ctx.beginPath();
+            ctx.arc(target.x, target.y, target.radius * 3, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            // 核心
+            ctx.beginPath();
+            ctx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.5)';
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(target.x, target.y, target.radius * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fill();
+            
+            // 标签
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('目标', target.x, target.y - target.radius - 10);
+        }
+        
+        // 绘制起点
+        function drawStart() {
+            ctx.beginPath();
+            ctx.arc(width * 0.2, height / 2, 20, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(100, 255, 150, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(100, 255, 150, 0.5)';
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('起点', width * 0.2, height / 2 + 40);
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 自动进化
+            if (autoEvolve && currentTime - lastEvolution > 5000) {
+                naturalSelection();
+                lastEvolution = currentTime;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 26, 10, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制起点和目标
+            drawStart();
+            drawTarget();
+            
+            // 更新和绘制个体
+            population.forEach(org => {
+                org.update();
+                org.draw();
+            });
+            
+            // 更新统计
+            document.getElementById('generation').textContent = generation;
+            document.getElementById('populationSize').textContent = population.length;
+            
+            // 计算适应度统计
+            let totalFitness = 0;
+            let maxFitness = 0;
+            population.forEach(org => {
+                const fitness = org.calculateFitness();
+                totalFitness += fitness;
+                maxFitness = Math.max(maxFitness, fitness);
+            });
+            
+            const avgFitness = (totalFitness / population.length) * 100;
+            document.getElementById('avgFitness').textContent = avgFitness.toFixed(1);
+            document.getElementById('bestFitness').textContent = (maxFitness * 100).toFixed(1);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：移动目标
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            target.x = e.clientX - rect.left;
+            target.y = e.clientY - rect.top;
+        });
+        
+        // 鼠标交互2：右键添加障碍物
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            // 可以扩展为添加障碍物
+        });
+        
+        // 控制面板事件
+        document.getElementById('populationSize').addEventListener('input', (e) => {
+            config.populationSize = parseInt(e.target.value);
+            document.getElementById('populationSizeValue').textContent = e.target.value;
+            initPopulation();
+        });
+        
+        document.getElementById('mutationRate').addEventListener('input', (e) => {
+            config.mutationRate = parseInt(e.target.value) / 100;
+            document.getElementById('mutationRateValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('selectionPressure').addEventListener('input', (e) => {
+            config.selectionPressure = parseInt(e.target.value);
+            document.getElementById('selectionPressureValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('targetPosition').addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            document.getElementById('targetPositionValue').textContent = value;
+            target.x = width * (value / 10);
+        });
+        
+        document.getElementById('nextGenBtn').addEventListener('click', () => {
+            naturalSelection();
+        });
+        
+        document.getElementById('autoEvolveBtn').addEventListener('click', (e) => {
+            autoEvolve = !autoEvolve;
+            e.target.textContent = autoEvolve ? '停止进化' : '自动进化';
+            e.target.style.background = autoEvolve 
+                ? 'linear-gradient(135deg, #ff6464 0%, #c83232 100%)'
+                : 'linear-gradient(135deg, #64ff96 0%, #32c864 100%)';
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            autoEvolve = false;
+            document.getElementById('autoEvolveBtn').textContent = '自动进化';
+            document.getElementById('autoEvolveBtn').style.background = 
+                'linear-gradient(135deg, #64ff96 0%, #32c864 100%)';
+            initPopulation();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            target.x = width * 0.8;
+            target.y = height / 2;
+            initPopulation();
+        });
+        
+        // 性能优化：移动设备减少种群
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.populationSize = 50;
+            document.getElementById('populationSize').value = 50;
+            document.getElementById('populationSizeValue').textContent = 50;
+        }
+        
+        // 初始化并启动
+        initPopulation();
+        animate(performance.now());
+    </script>
+</body>
+</html>
