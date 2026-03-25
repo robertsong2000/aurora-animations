@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宇宙大爆炸 - Big Bang</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 50px;
+            text-align: right;
+            margin-left: 10px;
+            color: #fff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #fff 0%, #ccc 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌌 宇宙大爆炸</h3>
+        <div>宇宙年龄: <span id="universeAge">0.00</span> 秒</div>
+        <div>宇宙温度: <span id="temperature">∞</span> K</div>
+        <div>粒子数量: <span id="particleCount">0</span></div>
+        <div>阶段: <span id="phase">奇点</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>膨胀速度:</label>
+            <input type="range" id="expansionSpeed" min="1" max="20" value="10">
+            <span class="value" id="expansionSpeedValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>粒子密度:</label>
+            <input type="range" id="particleDensity" min="100" max="2000" value="1000">
+            <span class="value" id="particleDensityValue">1000</span>
+        </div>
+        <div class="control-item">
+            <label>暴胀强度:</label>
+            <input type="range" id="inflationStrength" min="10" max="100" value="50">
+            <span class="value" id="inflationStrengthValue">50</span>
+        </div>
+        <button id="restartBtn">重新开始</button>
+        <button id="pauseBtn">暂停</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            expansionSpeed: 10,
+            particleDensity: 1000,
+            inflationStrength: 50
+        };
+        
+        // 宇宙状态
+        let universe = {
+            age: 0,           // 宇宙年龄（秒）
+            temperature: Infinity, // 温度（开尔文）
+            phase: 'singularity',  // 阶段
+            size: 0,          // 宇宙大小
+            paused: false
+        };
+        
+        // 粒子
+        let particles = [];
+        
+        // 时间线事件
+        const timeline = [
+            { time: 0, phase: 'singularity', temp: Infinity, event: '奇点' },
+            { time: 1e-43, phase: 'planck', temp: 1e32, event: '普朗克时期' },
+            { time: 1e-35, phase: 'inflation', temp: 1e27, event: '暴胀时期' },
+            { time: 1e-12, phase: 'electroweak', temp: 1e15, event: '电弱时期' },
+            { time: 1, phase: 'nucleosynthesis', temp: 1e9, event: '核合成' },
+            { time: 380000, phase: 'recombination', temp: 3000, event: '复合时期' },
+            { time: 3.8e17, phase: 'darkages', temp: 60, event: '黑暗时期' },
+            { time: 4e17, phase: 'stars', temp: 20, event: '第一代恒星' }
+        ];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // 从中心爆发
+                const angle = Math.random() * Math.PI * 2;
+                const distance = Math.random() * universe.size * 0.1;
+                
+                this.x = width / 2 + Math.cos(angle) * distance;
+                this.y = height / 2 + Math.sin(angle) * distance;
+                
+                // 向外膨胀的速度
+                const speed = (config.expansionSpeed * 0.5) + Math.random() * config.expansionSpeed;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.type = this.getParticleType();
+                this.color = this.getParticleColor();
+            }
+            
+            getParticleType() {
+                const rand = Math.random();
+                if (universe.age < 1e-12) {
+                    // 早期宇宙：夸克-胶子等离子体
+                    return 'plasma';
+                } else if (universe.age < 380000) {
+                    // 核合成时期：质子、中子、电子
+                    if (rand < 0.7) return 'proton';
+                    if (rand < 0.9) return 'neutron';
+                    return 'electron';
+                } else {
+                    // 复合后：氢原子、氦原子
+                    if (rand < 0.75) return 'hydrogen';
+                    if (rand < 0.95) return 'helium';
+                    return 'photon';
+                }
+            }
+            
+            getParticleColor() {
+                switch(this.type) {
+                    case 'plasma': return { r: 255, g: 255, b: 255 }; // 白色
+                    case 'proton': return { r: 255, g: 100, b: 100 }; // 红色
+                    case 'neutron': return { r: 100, g: 100, b: 255 }; // 蓝色
+                    case 'electron': return { r: 100, g: 255, b: 100 }; // 绿色
+                    case 'hydrogen': return { r: 255, g: 200, b: 100 }; // 橙色
+                    case 'helium': return { r: 255, g: 150, b: 50 }; // 金色
+                    case 'photon': return { r: 255, g: 255, b: 200 }; // 黄白色
+                    default: return { r: 255, g: 255, b: 255 };
+                }
+            }
+            
+            update() {
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 边界循环
+                if (this.x < 0) this.x = width;
+                if (this.x > width) this.x = 0;
+                if (this.y < 0) this.y = height;
+                if (this.y > height) this.y = 0;
+                
+                // 生命衰减
+                this.life -= 0.001;
+                if (this.life <= 0) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                
+                gradient.addColorStop(0, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.life * 0.8})`);
+                gradient.addColorStop(0.5, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.life * 0.3})`);
+                gradient.addColorStop(1, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.life})`;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制宇宙背景辐射
+        function drawCMB() {
+            if (universe.age < 380000) return;
+            
+            // 宇宙微波背景辐射（CMB）
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, Math.max(width, height)
+            );
+            
+            gradient.addColorStop(0, 'rgba(255, 200, 150, 0.1)');
+            gradient.addColorStop(0.3, 'rgba(200, 150, 100, 0.05)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 绘制暴胀效果
+        function drawInflation() {
+            if (universe.phase !== 'inflation') return;
+            
+            // 暴胀的快速膨胀光晕
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, universe.size
+            );
+            
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            gradient.addColorStop(0.3, 'rgba(255, 200, 100, 0.5)');
+            gradient.addColorStop(0.6, 'rgba(255, 100, 50, 0.3)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+        
+        // 绘制奇点
+        function drawSingularity() {
+            if (universe.phase !== 'singularity') return;
+            
+            // 奇点的无限密度光点
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, 20
+            );
+            
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(width / 2, height / 2, 20, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // 更新宇宙状态
+        function updateUniverse() {
+            if (universe.paused) return;
+            
+            // 更新宇宙年龄（加速时间流逝）
+            const timeStep = config.expansionSpeed * 1e15 * 0.016;
+            universe.age += timeStep;
+            
+            // 更新宇宙大小（膨胀）
+            universe.size += config.expansionSpeed * 0.5;
+            
+            // 确定当前阶段
+            for (let i = timeline.length - 1; i >= 0; i--) {
+                if (universe.age >= timeline[i].time) {
+                    universe.phase = timeline[i].phase;
+                    universe.temperature = timeline[i].temp;
+                    break;
+                }
+            }
+            
+            // 暴胀时期的特殊处理
+            if (universe.phase === 'inflation') {
+                universe.size += config.inflationStrength * 0.1;
+            }
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            
+            for (let i = 0; i < config.particleDensity; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 更新宇宙
+            updateUniverse();
+            
+            // 绘制背景辐射
+            drawCMB();
+            
+            // 绘制暴胀效果
+            drawInflation();
+            
+            // 绘制奇点
+            drawSingularity();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新信息
+            document.getElementById('universeAge').textContent = universe.age.toExponential(2);
+            document.getElementById('temperature').textContent = 
+                universe.temperature === Infinity ? '∞' : universe.temperature.toExponential(2);
+            document.getElementById('particleCount').textContent = particles.length;
+            
+            // 当前阶段
+            const currentPhase = timeline.find(t => t.phase === universe.phase);
+            document.getElementById('phase').textContent = currentPhase ? currentPhase.event : '未知';
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击触发局部爆炸
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 添加新粒子（局部爆炸）
+            for (let i = 0; i < 50; i++) {
+                const particle = new Particle();
+                particle.x = x;
+                particle.y = y;
+                particles.push(particle);
+            }
+        });
+        
+        // 鼠标交互2：右键暂停/继续
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            universe.paused = !universe.paused;
+        });
+        
+        // 控制面板事件
+        document.getElementById('expansionSpeed').addEventListener('input', (e) => {
+            config.expansionSpeed = parseInt(e.target.value);
+            document.getElementById('expansionSpeedValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleDensity = newCount;
+        });
+        
+        document.getElementById('inflationStrength').addEventListener('input', (e) => {
+            config.inflationStrength = parseInt(e.target.value);
+            document.getElementById('inflationStrengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            universe.age = 0;
+            universe.temperature = Infinity;
+            universe.phase = 'singularity';
+            universe.size = 0;
+            universe.paused = false;
+            initParticles();
+        });
+        
+        document.getElementById('pauseBtn').addEventListener('click', (e) => {
+            universe.paused = !universe.paused;
+            e.target.textContent = universe.paused ? '继续' : '暂停';
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleDensity = 500;
+            document.getElementById('particleDensity').value = 500;
+            document.getElementById('particleDensityValue').textContent = 500;
+        }
+        
+        // 初始化并启动
+        initParticles();
+        animate(performance.now());
+    </script>
+</body>
+</html>
