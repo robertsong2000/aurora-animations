@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>磁场线可视化 - Magnetic Field Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ff0080, #00ff80);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🧲 磁场线可视化</h1>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标移动：显示磁场强度</p>
+        <p>• 拖动磁极：改变磁场分布</p>
+        <p>• 点击空白：添加新磁极</p>
+        <p>• 右键点击：删除磁极</p>
+        <p>• 滚轮：调整磁场强度</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="resetMagnets()">重置磁极</button>
+        <button onclick="toggleParticles()">切换粒子</button>
+        <button onclick="toggleFieldLines()">切换磁场线</button>
+    </div>
+
+    <div class="stats">
+        <div>FPS: <span id="fps">0</span></div>
+        <div>磁极数: <span id="magnets">0</span></div>
+        <div>粒子数: <span id="particles">0</span></div>
+        <div>磁场强度: <span id="strength">1.0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff0080;"></div>
+            <span>N极（北极）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #00ff80;"></div>
+            <span>S极（南极）</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 磁极数组
+        let magnets = [];
+        
+        // 粒子系统
+        let particles = [];
+        const MAX_PARTICLES = 1000;
+        
+        // 磁场线
+        let fieldLines = [];
+        const FIELD_LINE_STEP = 5;
+        const FIELD_LINE_MAX_STEPS = 200;
+        
+        // 交互状态
+        let mouseX = 0, mouseY = 0;
+        let isDragging = false;
+        let draggedMagnet = null;
+        let showParticles = true;
+        let showFieldLines = true;
+        let fieldStrength = 1.0;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 创建初始磁极
+            createMagnet(canvas.width / 2 - 150, canvas.height / 2, 1);  // N极
+            createMagnet(canvas.width / 2 + 150, canvas.height / 2, -1); // S极
+            
+            // 初始化粒子
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                particles.push(createParticle());
+            }
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMoved);
+            canvas.addEventListener('mousedown', mousePressed);
+            canvas.addEventListener('mouseup', mouseReleased);
+            canvas.addEventListener('contextmenu', rightClick);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // 重新计算磁场线
+            calculateFieldLines();
+        }
+
+        // 创建磁极
+        function createMagnet(x, y, polarity) {
+            magnets.push({
+                x: x,
+                y: y,
+                polarity: polarity, // 1 = N极, -1 = S极
+                strength: 5000
+            });
+        }
+
+        // 创建粒子
+        function createParticle() {
+            return {
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                vx: 0,
+                vy: 0,
+                life: Math.random() * 100
+            };
+        }
+
+        // 计算磁场强度（基于库仑定律）
+        function getMagneticField(x, y) {
+            let Bx = 0, By = 0;
+            
+            for (let magnet of magnets) {
+                const dx = x - magnet.x;
+                const dy = y - magnet.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+                
+                // 磁场强度与距离平方成反比
+                const strength = (magnet.polarity * magnet.strength * fieldStrength) / (dist * dist);
+                
+                Bx += (dx / dist) * strength;
+                By += (dy / dist) * strength;
+            }
+            
+            return { x: Bx, y: By };
+        }
+
+        // 计算磁场线
+        function calculateFieldLines() {
+            fieldLines = [];
+            
+            if (magnets.length === 0) return;
+            
+            // 从每个N极发出磁场线
+            for (let magnet of magnets) {
+                if (magnet.polarity > 0) {
+                    // 从N极发出多条磁场线
+                    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 12) {
+                        const line = traceFieldLine(
+                            magnet.x + Math.cos(angle) * 20,
+                            magnet.y + Math.sin(angle) * 20
+                        );
+                        if (line.length > 0) {
+                            fieldLines.push(line);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 追踪磁场线
+        function traceFieldLine(startX, startY) {
+            const line = [];
+            let x = startX;
+            let y = startY;
+            
+            for (let i = 0; i < FIELD_LINE_MAX_STEPS; i++) {
+                line.push({ x, y });
+                
+                const field = getMagneticField(x, y);
+                const magnitude = Math.sqrt(field.x * field.x + field.y * field.y);
+                
+                if (magnitude < 0.1) break;
+                
+                // 沿磁场方向移动
+                x += (field.x / magnitude) * FIELD_LINE_STEP;
+                y += (field.y / magnitude) * FIELD_LINE_STEP;
+                
+                // 检查是否到达S极
+                for (let magnet of magnets) {
+                    if (magnet.polarity < 0) {
+                        const dist = Math.sqrt((x - magnet.x) ** 2 + (y - magnet.y) ** 2);
+                        if (dist < 20) {
+                            line.push({ x: magnet.x, y: magnet.y });
+                            return line;
+                        }
+                    }
+                }
+                
+                // 检查边界
+                if (x < 0 || x > canvas.width || y < 0 || y > canvas.height) {
+                    break;
+                }
+            }
+            
+            return line;
+        }
+
+        // 更新粒子
+        function updateParticles() {
+            for (let particle of particles) {
+                const field = getMagneticField(particle.x, particle.y);
+                
+                // 粒子跟随磁场
+                particle.vx = field.x * 0.001;
+                particle.vy = field.y * 0.001;
+                
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                
+                particle.life -= 0.2;
+                
+                // 边界检测和生命周期
+                if (particle.x < 0 || particle.x > canvas.width ||
+                    particle.y < 0 || particle.y > canvas.height ||
+                    particle.life <= 0) {
+                    particle.x = Math.random() * canvas.width;
+                    particle.y = Math.random() * canvas.height;
+                    particle.vx = 0;
+                    particle.vy = 0;
+                    particle.life = 100 + Math.random() * 100;
+                }
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制磁场线
+            if (showFieldLines) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 1;
+                
+                for (let line of fieldLines) {
+                    if (line.length < 2) continue;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(line[0].x, line[0].y);
+                    
+                    for (let i = 1; i < line.length; i++) {
+                        ctx.lineTo(line[i].x, line[i].y);
+                    }
+                    
+                    ctx.stroke();
+                }
+            }
+            
+            // 绘制粒子
+            if (showParticles) {
+                for (let particle of particles) {
+                    const field = getMagneticField(particle.x, particle.y);
+                    const magnitude = Math.sqrt(field.x * field.x + field.y * field.y);
+                    const hue = (magnitude * 0.5) % 360;
+                    
+                    ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${particle.life / 200})`;
+                    ctx.beginPath();
+                    ctx.arc(particle.x, particle.y, 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            // 绘制磁极
+            for (let magnet of magnets) {
+                const gradient = ctx.createRadialGradient(
+                    magnet.x, magnet.y, 0,
+                    magnet.x, magnet.y, 30
+                );
+                
+                if (magnet.polarity > 0) {
+                    gradient.addColorStop(0, '#ff0080');
+                    gradient.addColorStop(0.5, 'rgba(255, 0, 128, 0.5)');
+                    gradient.addColorStop(1, 'rgba(255, 0, 128, 0)');
+                } else {
+                    gradient.addColorStop(0, '#00ff80');
+                    gradient.addColorStop(0.5, 'rgba(0, 255, 128, 0.5)');
+                    gradient.addColorStop(1, 'rgba(0, 255, 128, 0)');
+                }
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(magnet.x, magnet.y, 30, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 绘制磁极标签
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(magnet.polarity > 0 ? 'N' : 'S', magnet.x, magnet.y);
+            }
+            
+            // 绘制鼠标位置磁场强度
+            const mouseField = getMagneticField(mouseX, mouseY);
+            const mouseMagnitude = Math.sqrt(mouseField.x * mouseField.x + mouseField.y * mouseField.y);
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(mouseX, mouseY);
+            ctx.lineTo(mouseX + mouseField.x * 0.05, mouseY + mouseField.y * 0.05);
+            ctx.stroke();
+            
+            // 绘制箭头
+            const arrowSize = 10;
+            const angle = Math.atan2(mouseField.y, mouseField.x);
+            ctx.beginPath();
+            ctx.moveTo(mouseX + mouseField.x * 0.05, mouseY + mouseField.y * 0.05);
+            ctx.lineTo(
+                mouseX + mouseField.x * 0.05 - arrowSize * Math.cos(angle - Math.PI / 6),
+                mouseY + mouseField.y * 0.05 - arrowSize * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.moveTo(mouseX + mouseField.x * 0.05, mouseY + mouseField.y * 0.05);
+            ctx.lineTo(
+                mouseX + mouseField.x * 0.05 - arrowSize * Math.cos(angle + Math.PI / 6),
+                mouseY + mouseField.y * 0.05 - arrowSize * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.stroke();
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+                document.getElementById('magnets').textContent = magnets.length;
+                document.getElementById('particles').textContent = particles.length;
+                document.getElementById('strength').textContent = fieldStrength.toFixed(1);
+            }
+            
+            // 更新
+            updateParticles();
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseMoved(e) {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            if (isDragging && draggedMagnet) {
+                draggedMagnet.x = mouseX;
+                draggedMagnet.y = mouseY;
+                calculateFieldLines();
+            }
+        }
+
+        function mousePressed(e) {
+            if (e.button === 0) { // 左键
+                // 检查是否点击了磁极
+                for (let magnet of magnets) {
+                    const dist = Math.sqrt((e.clientX - magnet.x) ** 2 + (e.clientY - magnet.y) ** 2);
+                    if (dist < 30) {
+                        isDragging = true;
+                        draggedMagnet = magnet;
+                        return;
+                    }
+                }
+                
+                // 如果没有点击磁极，添加新磁极
+                const polarity = magnets.length % 2 === 0 ? 1 : -1;
+                createMagnet(e.clientX, e.clientY, polarity);
+                calculateFieldLines();
+            }
+        }
+
+        function mouseReleased() {
+            isDragging = false;
+            draggedMagnet = null;
+        }
+
+        function rightClick(e) {
+            e.preventDefault();
+            
+            // 检查是否点击了磁极
+            for (let i = magnets.length - 1; i >= 0; i--) {
+                const dist = Math.sqrt((e.clientX - magnets[i].x) ** 2 + (e.clientY - magnets[i].y) ** 2);
+                if (dist < 30) {
+                    magnets.splice(i, 1);
+                    calculateFieldLines();
+                    return;
+                }
+            }
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            fieldStrength += e.deltaY * -0.001;
+            fieldStrength = Math.max(0.1, Math.min(5.0, fieldStrength));
+            calculateFieldLines();
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            // 检查是否点击了磁极
+            for (let magnet of magnets) {
+                const dist = Math.sqrt((touch.clientX - magnet.x) ** 2 + (touch.clientY - magnet.y) ** 2);
+                if (dist < 30) {
+                    isDragging = true;
+                    draggedMagnet = magnet;
+                    return;
+                }
+            }
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            if (isDragging && draggedMagnet) {
+                draggedMagnet.x = mouseX;
+                draggedMagnet.y = mouseY;
+                calculateFieldLines();
+            }
+        }
+
+        function touchEnd() {
+            isDragging = false;
+            draggedMagnet = null;
+        }
+
+        // 控制函数
+        function resetMagnets() {
+            magnets = [];
+            createMagnet(canvas.width / 2 - 150, canvas.height / 2, 1);
+            createMagnet(canvas.width / 2 + 150, canvas.height / 2, -1);
+            calculateFieldLines();
+        }
+
+        function toggleParticles() {
+            showParticles = !showParticles;
+        }
+
+        function toggleFieldLines() {
+            showFieldLines = !showFieldLines;
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
