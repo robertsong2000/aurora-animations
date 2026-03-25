@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>混沌理论 - Chaos Theory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 100, 150, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 150, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ff6496;
+            text-shadow: 0 0 10px rgba(255, 100, 150, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 100, 150, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 150, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ff6496;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ff6496 0%, #ff3366 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 100, 150, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🦋 混沌理论</h3>
+        <div>轨迹数量: <span id="trajectoryCount">0</span></div>
+        <div>迭代次数: <span id="iterations">0</span></div>
+        <div>σ (sigma): <span id="sigma">10.0</span></div>
+        <div>ρ (rho): <span id="rho">28.0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>σ (sigma):</label>
+            <input type="range" id="sigma" min="1" max="20" value="10" step="0.1">
+            <span class="value" id="sigmaValue">10.0</span>
+        </div>
+        <div class="control-item">
+            <label>ρ (rho):</label>
+            <input type="range" id="rho" min="1" max="50" value="28" step="0.1">
+            <span class="value" id="rhoValue">28.0</span>
+        </div>
+        <div class="control-item">
+            <label>β (beta):</label>
+            <input type="range" id="beta" min="1" max="10" value="2.67" step="0.01">
+            <span class="value" id="betaValue">2.67</span>
+        </div>
+        <div class="control-item">
+            <label>轨迹数量:</label>
+            <input type="range" id="trajectoryCount" min="1" max="20" value="5">
+            <span class="value" id="trajectoryCountValue">5</span>
+        </div>
+        <button id="addTrajectoryBtn">添加轨迹</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 洛伦兹吸引子参数
+        let sigma = 10;
+        let rho = 28;
+        let beta = 8 / 3;
+        
+        // 轨迹
+        let trajectories = [];
+        
+        // 迭代计数
+        let totalIterations = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 洛伦兹轨迹类
+        class LorenzTrajectory {
+            constructor(x0, y0, z0, color) {
+                this.x = x0;
+                this.y = y0;
+                this.z = z0;
+                this.color = color || this.generateColor();
+                this.points = [];
+                this.maxPoints = 5000;
+                this.dt = 0.005;
+                this.iterations = 0;
+            }
+            
+            generateColor() {
+                const hue = Math.random() * 60 + 320; // 粉红-红色范围
+                return { h: hue, s: 70, l: 60 };
+            }
+            
+            // 洛伦兹方程
+            dx(x, y, z) {
+                return sigma * (y - x);
+            }
+            
+            dy(x, y, z) {
+                return x * (rho - z) - y;
+            }
+            
+            dz(x, y, z) {
+                return x * y - beta * z;
+            }
+            
+            update() {
+                // 使用 Runge-Kutta 4阶方法
+                const k1x = this.dx(this.x, this.y, this.z);
+                const k1y = this.dy(this.x, this.y, this.z);
+                const k1z = this.dz(this.x, this.y, this.z);
+                
+                const k2x = this.dx(
+                    this.x + k1x * this.dt / 2,
+                    this.y + k1y * this.dt / 2,
+                    this.z + k1z * this.dt / 2
+                );
+                const k2y = this.dy(
+                    this.x + k1x * this.dt / 2,
+                    this.y + k1y * this.dt / 2,
+                    this.z + k1z * this.dt / 2
+                );
+                const k2z = this.dz(
+                    this.x + k1x * this.dt / 2,
+                    this.y + k1y * this.dt / 2,
+                    this.z + k1z * this.dt / 2
+                );
+                
+                const k3x = this.dx(
+                    this.x + k2x * this.dt / 2,
+                    this.y + k2y * this.dt / 2,
+                    this.z + k2z * this.dt / 2
+                );
+                const k3y = this.dy(
+                    this.x + k2x * this.dt / 2,
+                    this.y + k2y * this.dt / 2,
+                    this.z + k2z * this.dt / 2
+                );
+                const k3z = this.dz(
+                    this.x + k2x * this.dt / 2,
+                    this.y + k2y * this.dt / 2,
+                    this.z + k2z * this.dt / 2
+                );
+                
+                const k4x = this.dx(
+                    this.x + k3x * this.dt,
+                    this.y + k3y * this.dt,
+                    this.z + k3z * this.dt
+                );
+                const k4y = this.dy(
+                    this.x + k3x * this.dt,
+                    this.y + k3y * this.dt,
+                    this.z + k3z * this.dt
+                );
+                const k4z = this.dz(
+                    this.x + k3x * this.dt,
+                    this.y + k3y * this.dt,
+                    this.z + k3z * this.dt
+                );
+                
+                // 更新位置
+                this.x += (k1x + 2 * k2x + 2 * k3x + k4x) * this.dt / 6;
+                this.y += (k1y + 2 * k2y + 2 * k3y + k4y) * this.dt / 6;
+                this.z += (k1z + 2 * k2z + 2 * k3z + k4z) * this.dt / 6;
+                
+                // 投影到2D（简单的正交投影）
+                const scale = 8;
+                const px = width / 2 + this.x * scale;
+                const py = height / 2 - this.z * scale + 50;
+                
+                // 添加点
+                this.points.push({ x: px, y: py, z: this.z });
+                
+                // 限制点数
+                if (this.points.length > this.maxPoints) {
+                    this.points.shift();
+                }
+                
+                this.iterations++;
+            }
+            
+            draw() {
+                if (this.points.length < 2) return;
+                
+                // 绘制轨迹
+                ctx.beginPath();
+                ctx.moveTo(this.points[0].x, this.points[0].y);
+                
+                for (let i = 1; i < this.points.length; i++) {
+                    const point = this.points[i];
+                    const alpha = (i / this.points.length) * 0.8;
+                    
+                    ctx.lineTo(point.x, point.y);
+                }
+                
+                // 渐变色
+                const gradient = ctx.createLinearGradient(
+                    this.points[0].x, this.points[0].y,
+                    this.points[this.points.length - 1].x,
+                    this.points[this.points.length - 1].y
+                );
+                
+                gradient.addColorStop(0, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0.1)`);
+                gradient.addColorStop(0.5, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0.5)`);
+                gradient.addColorStop(1, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0.9)`);
+                
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                
+                // 绘制当前点（发光效果）
+                const currentPoint = this.points[this.points.length - 1];
+                
+                const glowGradient = ctx.createRadialGradient(
+                    currentPoint.x, currentPoint.y, 0,
+                    currentPoint.x, currentPoint.y, 20
+                );
+                
+                glowGradient.addColorStop(0, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0.9)`);
+                glowGradient.addColorStop(0.5, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0.3)`);
+                glowGradient.addColorStop(1, `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l}%, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(currentPoint.x, currentPoint.y, 20, 0, Math.PI * 2);
+                ctx.fillStyle = glowGradient;
+                ctx.fill();
+                
+                // 核心点
+                ctx.beginPath();
+                ctx.arc(currentPoint.x, currentPoint.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.color.h}, ${this.color.s}%, ${this.color.l + 20}%, 1)`;
+                ctx.fill();
+            }
+        }
+        
+        // 初始化轨迹
+        function initTrajectories(count) {
+            trajectories = [];
+            
+            for (let i = 0; i < count; i++) {
+                // 微小的初始条件差异（蝴蝶效应）
+                const x0 = 0.1 + (Math.random() - 0.5) * 0.01;
+                const y0 = 0 + (Math.random() - 0.5) * 0.01;
+                const z0 = 0 + (Math.random() - 0.5) * 0.01;
+                
+                trajectories.push(new LorenzTrajectory(x0, y0, z0));
+            }
+            
+            totalIterations = 0;
+        }
+        
+        // 绘制背景网格
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(255, 100, 150, 0.05)';
+            ctx.lineWidth = 1;
+            
+            const gridSize = 50;
+            
+            for (let x = 0; x < width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            
+            for (let y = 0; y < height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+        }
+        
+        // 绘制中心点
+        function drawCenter() {
+            ctx.beginPath();
+            ctx.arc(width / 2, height / 2, 3, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 100, 150, 0.3)';
+            ctx.fill();
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 清除画布（带淡出效果）
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.05)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制网格
+            drawGrid();
+            
+            // 绘制中心点
+            drawCenter();
+            
+            // 更新和绘制轨迹
+            trajectories.forEach(trajectory => {
+                // 每帧多次迭代以加速
+                for (let i = 0; i < 5; i++) {
+                    trajectory.update();
+                    totalIterations++;
+                }
+                trajectory.draw();
+            });
+            
+            // 更新统计
+            document.getElementById('trajectoryCount').textContent = trajectories.length;
+            document.getElementById('iterations').textContent = totalIterations;
+            document.getElementById('sigma').textContent = sigma.toFixed(1);
+            document.getElementById('rho').textContent = rho.toFixed(1);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击创建新轨迹（展示蝴蝶效应）
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 将屏幕坐标转换为洛伦兹坐标
+            const x0 = (mouseX - width / 2) / 8;
+            const z0 = -(mouseY - height / 2 - 50) / 8;
+            const y0 = x0; // 简单近似
+            
+            trajectories.push(new LorenzTrajectory(x0, y0, z0));
+            
+            // 限制轨迹数量
+            if (trajectories.length > 20) {
+                trajectories.shift();
+            }
+        });
+        
+        // 鼠标交互2：悬停显示坐标
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 绘制鼠标位置指示器
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, 10, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 100, 150, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        });
+        
+        // 控制面板事件
+        document.getElementById('sigma').addEventListener('input', (e) => {
+            sigma = parseFloat(e.target.value);
+            document.getElementById('sigmaValue').textContent = sigma.toFixed(1);
+        });
+        
+        document.getElementById('rho').addEventListener('input', (e) => {
+            rho = parseFloat(e.target.value);
+            document.getElementById('rhoValue').textContent = rho.toFixed(1);
+        });
+        
+        document.getElementById('beta').addEventListener('input', (e) => {
+            beta = parseFloat(e.target.value);
+            document.getElementById('betaValue').textContent = beta.toFixed(2);
+        });
+        
+        document.getElementById('trajectoryCount').addEventListener('input', (e) => {
+            const count = parseInt(e.target.value);
+            document.getElementById('trajectoryCountValue').textContent = count;
+            initTrajectories(count);
+        });
+        
+        document.getElementById('addTrajectoryBtn').addEventListener('click', () => {
+            // 添加一个微小差异的新轨迹
+            const x0 = 0.1 + (Math.random() - 0.5) * 0.001;
+            const y0 = 0 + (Math.random() - 0.5) * 0.001;
+            const z0 = 0 + (Math.random() - 0.5) * 0.001;
+            
+            trajectories.push(new LorenzTrajectory(x0, y0, z0));
+            
+            if (trajectories.length > 20) {
+                trajectories.shift();
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            initTrajectories(5);
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // 性能优化：移动设备减少轨迹
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            initTrajectories(3);
+        } else {
+            initTrajectories(5);
+        }
+        
+        // 启动动画
+        animate(performance.now());
+    </script>
+</body>
+</html>
