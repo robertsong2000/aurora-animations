@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>弦理论 - String Theory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a0a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 100, 200, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 200, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ff64c8;
+            text-shadow: 0 0 10px rgba(255, 100, 200, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 100, 200, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 100, 200, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ff64c8;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ff64c8 0%, #c83296 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 100, 200, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🎭 弦理论</h3>
+        <div>弦数量: <span id="stringCount">0</span></div>
+        <div>维度: <span id="dimensions">3</span></div>
+        <div>谐频模式: <span id="harmonicMode">1</span></div>
+        <div>张力: <span id="tension">50</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>谐频模式:</label>
+            <input type="range" id="harmonicMode" min="1" max="10" value="1">
+            <span class="value" id="harmonicModeValue">1</span>
+        </div>
+        <div class="control-item">
+            <label>张力:</label>
+            <input type="range" id="tension" min="10" max="100" value="50">
+            <span class="value" id="tensionValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>振幅:</label>
+            <input type="range" id="amplitude" min="10" max="100" value="50">
+            <span class="value" id="amplitudeValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>弦数量:</label>
+            <input type="range" id="stringCount" min="1" max="20" value="5">
+            <span class="value" id="stringCountValue">5</span>
+        </div>
+        <button id="addDimensionBtn">添加维度</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            harmonicMode: 1,
+            tension: 50,
+            amplitude: 50,
+            stringCount: 5
+        };
+        
+        // 维度（3D到10D）
+        let dimensions = 3;
+        
+        // 弦
+        let strings = [];
+        
+        // 时间
+        let time = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色主题
+        const stringColors = [
+            { r: 255, g: 100, b: 200 },  // 粉红
+            { r: 255, g: 150, b: 100 },  // 橙色
+            { r: 255, g: 200, b: 100 },  // 金色
+            { r: 100, g: 255, b: 150 },  // 绿色
+            { r: 100, g: 200, b: 255 },  // 蓝色
+            { r: 150, g: 100, b: 255 },  // 紫色
+            { r: 255, g: 100, b: 150 },  // 玫红
+            { r: 100, g: 255, b: 200 },  // 青绿
+            { r: 200, g: 150, b: 255 },  // 淡紫
+            { r: 255, g: 200, b: 150 }   // 桃色
+        ];
+        
+        // 弦类
+        class String {
+            constructor(y, mode, color) {
+                this.y = y;
+                this.mode = mode;
+                this.color = color;
+                this.points = 100;
+                this.phase = Math.random() * Math.PI * 2;
+                this.frequency = 1 / mode;
+            }
+            
+            // 弦振动方程（驻波）
+            getDisplacement(x, t) {
+                // y(x,t) = A * sin(n*π*x/L) * cos(ω*t)
+                const L = width;
+                const n = this.mode;
+                const A = config.amplitude;
+                const omega = config.tension * 0.1;
+                
+                const spatial = Math.sin((n * Math.PI * x) / L);
+                const temporal = Math.cos(omega * t + this.phase);
+                
+                return A * spatial * temporal;
+            }
+            
+            // 高维振动（额外维度的投影）
+            getExtraDimensionDisplacement(x, t, dim) {
+                if (dim <= 3) return 0;
+                
+                const L = width;
+                const n = this.mode + (dim - 3);
+                const A = config.amplitude * 0.3;
+                const omega = config.tension * 0.15;
+                
+                const spatial = Math.sin((n * Math.PI * x) / L);
+                const temporal = Math.cos(omega * t + this.phase + dim);
+                
+                return A * spatial * temporal;
+            }
+            
+            update() {
+                // 更新相位
+                this.phase += 0.02;
+            }
+            
+            draw() {
+                // 绘制弦的主体
+                ctx.beginPath();
+                
+                for (let i = 0; i <= this.points; i++) {
+                    const x = (i / this.points) * width;
+                    const displacement = this.getDisplacement(x, time);
+                    const y = this.y + displacement;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                // 发光效果
+                ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.6)`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                
+                // 核心线
+                ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.9)`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 绘制额外维度的振动（如果维度>3）
+                if (dimensions > 3) {
+                    for (let dim = 4; dim <= dimensions; dim++) {
+                        ctx.beginPath();
+                        
+                        for (let i = 0; i <= this.points; i++) {
+                            const x = (i / this.points) * width;
+                            const displacement = this.getExtraDimensionDisplacement(x, time, dim);
+                            const yOffset = (dim - 3) * 15;
+                            const y = this.y + displacement + yOffset;
+                            
+                            if (i === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        }
+                        
+                        ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${0.3 - (dim - 4) * 0.05})`;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+                
+                // 绘制节点（驻波的固定点）
+                const L = width;
+                for (let i = 0; i <= this.mode; i++) {
+                    const nodeX = (i / this.mode) * L;
+                    
+                    ctx.beginPath();
+                    ctx.arc(nodeX, this.y, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.8)`;
+                    ctx.fill();
+                }
+                
+                // 标签
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.font = '12px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText(`n=${this.mode}`, 10, this.y - 20);
+            }
+        }
+        
+        // 绘制卡拉比-丘流形（额外维度的几何结构）
+        function drawCalabiYau() {
+            const centerX = width - 200;
+            const centerY = 150;
+            const radius = 80;
+            
+            // 旋转的复杂几何形状
+            const points = 50;
+            
+            ctx.beginPath();
+            
+            for (let i = 0; i <= points; i++) {
+                const angle = (i / points) * Math.PI * 2;
+                const r = radius + Math.sin(angle * 3 + time * 2) * 20;
+                
+                const x = centerX + r * Math.cos(angle);
+                const y = centerY + r * Math.sin(angle) * 0.5;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.closePath();
+            ctx.strokeStyle = 'rgba(255, 100, 200, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // 内部结构
+            for (let j = 0; j < 3; j++) {
+                ctx.beginPath();
+                
+                for (let i = 0; i <= points; i++) {
+                    const angle = (i / points) * Math.PI * 2;
+                    const r = (radius * 0.5) + Math.sin(angle * 5 + time * 3 + j) * 15;
+                    
+                    const x = centerX + r * Math.cos(angle + j * 0.5);
+                    const y = centerY + r * Math.sin(angle + j * 0.5) * 0.5;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.closePath();
+                ctx.strokeStyle = `rgba(255, 100, 200, ${0.3 - j * 0.08})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
+            // 标签
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.font = '12px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('卡拉比-丘流形', centerX, centerY + radius + 30);
+            ctx.fillText(`(${dimensions}D)`, centerX, centerY + radius + 45);
+        }
+        
+        // 绘制维度指示器
+        function drawDimensionIndicator() {
+            const startX = width - 150;
+            const startY = height - 150;
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText('维度:', startX, startY);
+            
+            // 绘制每个维度
+            for (let i = 0; i < 10; i++) {
+                const x = startX + (i % 5) * 25;
+                const y = startY + 20 + Math.floor(i / 5) * 25;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, Math.PI * 2);
+                
+                if (i < dimensions) {
+                    ctx.fillStyle = `rgba(255, 100, 200, 0.8)`;
+                } else {
+                    ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
+                }
+                
+                ctx.fill();
+                
+                // 维度标签
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.font = '10px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${i + 1}D`, x, y + 3);
+            }
+        }
+        
+        // 初始化弦
+        function initStrings() {
+            strings = [];
+            
+            const spacing = height / (config.stringCount + 1);
+            
+            for (let i = 0; i < config.stringCount; i++) {
+                const y = spacing * (i + 1);
+                const mode = i + 1;
+                const color = stringColors[i % stringColors.length];
+                strings.push(new String(y, mode, color));
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += 0.016;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 10, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制卡拉比-丘流形
+            drawCalabiYau();
+            
+            // 绘制维度指示器
+            drawDimensionIndicator();
+            
+            // 更新和绘制弦
+            strings.forEach(string => {
+                string.update();
+                string.draw();
+            });
+            
+            // 更新信息
+            document.getElementById('stringCount').textContent = strings.length;
+            document.getElementById('dimensions').textContent = dimensions;
+            document.getElementById('harmonicMode').textContent = config.harmonicMode;
+            document.getElementById('tension').textContent = config.tension;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击添加弦
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            
+            if (strings.length < 20) {
+                const mode = strings.length + 1;
+                const color = stringColors[strings.length % stringColors.length];
+                strings.push(new String(y, mode, color));
+            }
+        });
+        
+        // 鼠标交互2：右键移除弦
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (strings.length > 1) {
+                strings.pop();
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('harmonicMode').addEventListener('input', (e) => {
+            config.harmonicMode = parseInt(e.target.value);
+            document.getElementById('harmonicModeValue').textContent = e.target.value;
+            
+            // 更新所有弦的模式
+            strings.forEach((string, index) => {
+                string.mode = config.harmonicMode + index;
+            });
+        });
+        
+        document.getElementById('tension').addEventListener('input', (e) => {
+            config.tension = parseInt(e.target.value);
+            document.getElementById('tensionValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('amplitude').addEventListener('input', (e) => {
+            config.amplitude = parseInt(e.target.value);
+            document.getElementById('amplitudeValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('stringCount').addEventListener('input', (e) => {
+            config.stringCount = parseInt(e.target.value);
+            document.getElementById('stringCountValue').textContent = e.target.value;
+            initStrings();
+        });
+        
+        document.getElementById('addDimensionBtn').addEventListener('click', () => {
+            if (dimensions < 10) {
+                dimensions++;
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            dimensions = 3;
+            initStrings();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initStrings();
+        });
+        
+        // 性能优化：移动设备减少弦数量
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.stringCount = 3;
+            document.getElementById('stringCount').value = 3;
+            document.getElementById('stringCountValue').textContent = 3;
+        }
+        
+        // 初始化并启动
+        initStrings();
+        animate(performance.now());
+    </script>
+</body>
+</html>
