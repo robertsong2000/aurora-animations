@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生命游戏 - Conway's Game of Life</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00ff00, #00ffff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🧬 生命游戏</h1>
+        <p><strong>Conway's Game of Life</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 点击/拖动：绘制细胞</p>
+        <p>• 空格键：暂停/继续</p>
+        <p>• C键：清除所有细胞</p>
+        <p>• R键：随机生成</p>
+        <p>• 滚轮：调整速度</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="togglePause()">暂停/继续</button>
+        <button onclick="clearGrid()">清除</button>
+        <button onclick="randomize()">随机</button>
+        <button onclick="addGlider()">滑翔机</button>
+        <button onclick="addPulsar()">脉冲星</button>
+        <button onclick="addGosperGun()">高斯帕枪</button>
+    </div>
+
+    <div class="stats">
+        <div>世代: <span id="generation">0</span></div>
+        <div>存活细胞: <span id="population">0</span></div>
+        <div>速度: <span id="speed">10</span> gen/s</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #00ff00;"></div>
+            <span>存活细胞</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(0, 255, 0, 0.3);"></div>
+            <span>新生细胞</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 网格设置
+        const CELL_SIZE = 8;
+        let cols, rows;
+        let grid, nextGrid;
+        
+        // 状态
+        let isPaused = false;
+        let generation = 0;
+        let speed = 10; // 每秒世代数
+        let lastUpdate = 0;
+        let isDrawing = false;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 初始化网格
+            cols = Math.floor(canvas.width / CELL_SIZE);
+            rows = Math.floor(canvas.height / CELL_SIZE);
+            grid = new Array(cols * rows).fill(0);
+            nextGrid = new Array(cols * rows).fill(0);
+            
+            // 随机初始化
+            randomize();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', mouseDown);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('mouseup', mouseUp);
+            canvas.addEventListener('wheel', wheel);
+            document.addEventListener('keydown', keyDown);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // 重新初始化网格
+            const newCols = Math.floor(canvas.width / CELL_SIZE);
+            const newRows = Math.floor(canvas.height / CELL_SIZE);
+            const newGrid = new Array(newCols * newRows).fill(0);
+            
+            // 复制旧数据
+            if (grid && cols && rows) {
+                for (let y = 0; y < Math.min(rows, newRows); y++) {
+                    for (let x = 0; x < Math.min(cols, newCols); x++) {
+                        newGrid[y * newCols + x] = grid[y * cols + x];
+                    }
+                }
+            }
+            
+            cols = newCols;
+            rows = newRows;
+            grid = newGrid;
+            nextGrid = new Array(cols * rows).fill(0);
+        }
+
+        // 索引转换
+        function IX(x, y) {
+            return y * cols + x;
+        }
+
+        // 获取细胞状态
+        function getCell(x, y) {
+            if (x < 0 || x >= cols || y < 0 || y >= rows) return 0;
+            return grid[IX(x, y)];
+        }
+
+        // 设置细胞状态
+        function setCell(x, y, value) {
+            if (x < 0 || x >= cols || y < 0 || y >= rows) return;
+            grid[IX(x, y)] = value;
+        }
+
+        // 计算邻居数量
+        function countNeighbors(x, y) {
+            let count = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    count += getCell(x + dx, y + dy);
+                }
+            }
+            return count;
+        }
+
+        // 更新网格
+        function updateGrid() {
+            if (isPaused) return;
+            
+            const now = performance.now();
+            if (now - lastUpdate < 1000 / speed) return;
+            lastUpdate = now;
+            
+            // 计算下一代
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const neighbors = countNeighbors(x, y);
+                    const current = getCell(x, y);
+                    
+                    if (current === 1) {
+                        // 存活细胞
+                        nextGrid[IX(x, y)] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                    } else {
+                        // 死亡细胞
+                        nextGrid[IX(x, y)] = (neighbors === 3) ? 1 : 0;
+                    }
+                }
+            }
+            
+            // 交换网格
+            [grid, nextGrid] = [nextGrid, grid];
+            generation++;
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制网格线
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            
+            for (let x = 0; x <= cols; x++) {
+                ctx.beginPath();
+                ctx.moveTo(x * CELL_SIZE, 0);
+                ctx.lineTo(x * CELL_SIZE, canvas.height);
+                ctx.stroke();
+            }
+            
+            for (let y = 0; y <= rows; y++) {
+                ctx.beginPath();
+                ctx.moveTo(0, y * CELL_SIZE);
+                ctx.lineTo(canvas.width, y * CELL_SIZE);
+                ctx.stroke();
+            }
+            
+            // 绘制细胞
+            let population = 0;
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    if (getCell(x, y) === 1) {
+                        population++;
+                        
+                        // 根据邻居数量改变颜色
+                        const neighbors = countNeighbors(x, y);
+                        const hue = 120 + neighbors * 10; // 绿色到青色
+                        const saturation = 80;
+                        const lightness = 50 + neighbors * 5;
+                        
+                        ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                        
+                        // 绘制细胞
+                        ctx.fillRect(
+                            x * CELL_SIZE + 1,
+                            y * CELL_SIZE + 1,
+                            CELL_SIZE - 2,
+                            CELL_SIZE - 2
+                        );
+                        
+                        // 发光效果
+                        if (neighbors === 2 || neighbors === 3) {
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.5)`;
+                            ctx.fillRect(
+                                x * CELL_SIZE + 1,
+                                y * CELL_SIZE + 1,
+                                CELL_SIZE - 2,
+                                CELL_SIZE - 2
+                            );
+                            ctx.shadowBlur = 0;
+                        }
+                    }
+                }
+            }
+            
+            // 更新统计
+            document.getElementById('generation').textContent = generation;
+            document.getElementById('population').textContent = population;
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新
+            updateGrid();
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseDown(e) {
+            isDrawing = true;
+            drawCell(e);
+        }
+
+        function mouseMove(e) {
+            if (!isDrawing) return;
+            drawCell(e);
+        }
+
+        function mouseUp() {
+            isDrawing = false;
+        }
+
+        function drawCell(e) {
+            const x = Math.floor(e.clientX / CELL_SIZE);
+            const y = Math.floor(e.clientY / CELL_SIZE);
+            setCell(x, y, 1);
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            speed += e.deltaY > 0 ? -1 : 1;
+            speed = Math.max(1, Math.min(60, speed));
+            document.getElementById('speed').textContent = speed;
+        }
+
+        function keyDown(e) {
+            switch(e.key.toLowerCase()) {
+                case ' ':
+                    togglePause();
+                    break;
+                case 'c':
+                    clearGrid();
+                    break;
+                case 'r':
+                    randomize();
+                    break;
+            }
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            isDrawing = true;
+            const touch = e.touches[0];
+            drawCell({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            if (!isDrawing) return;
+            const touch = e.touches[0];
+            drawCell({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchEnd() {
+            isDrawing = false;
+        }
+
+        // 控制函数
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+
+        function clearGrid() {
+            grid.fill(0);
+            generation = 0;
+        }
+
+        function randomize() {
+            for (let i = 0; i < grid.length; i++) {
+                grid[i] = Math.random() > 0.7 ? 1 : 0;
+            }
+            generation = 0;
+        }
+
+        // 预设图案
+        function addGlider() {
+            const patterns = [
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 1, 1]
+            ];
+            addPattern(Math.floor(cols / 2), Math.floor(rows / 2), patterns);
+        }
+
+        function addPulsar() {
+            const patterns = [
+                [0,0,1,1,1,0,0,0,1,1,1,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [0,0,1,1,1,0,0,0,1,1,1,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,0,0,0,1,1,1,0,0],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [1,0,0,0,0,1,0,1,0,0,0,0,1],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,0,0,0,1,1,1,0,0]
+            ];
+            addPattern(Math.floor(cols / 2) - 6, Math.floor(rows / 2) - 6, patterns);
+        }
+
+        function addGosperGun() {
+            const patterns = [
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+                [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1],
+                [1,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,1,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            ];
+            addPattern(10, Math.floor(rows / 2) - 4, patterns);
+        }
+
+        function addPattern(startX, startY, pattern) {
+            for (let y = 0; y < pattern.length; y++) {
+                for (let x = 0; x < pattern[y].length; x++) {
+                    if (pattern[y][x] === 1) {
+                        setCell(startX + x, startY + y, 1);
+                    }
+                }
+            }
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
