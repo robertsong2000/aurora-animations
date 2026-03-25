@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>神经网络可视化 - Neural Network Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00ffff, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🧠 神经网络可视化</h1>
+        <p><strong>交互方式：</strong></p>
+        <p>• 点击空白：添加神经元</p>
+        <p>• 拖动神经元：移动位置</p>
+        <p>• 拖动连接：创建突触</p>
+        <p>• 右键点击：删除神经元</p>
+        <p>• 鼠标悬停：显示信息</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="resetNetwork()">重置网络</button>
+        <button onclick="createRandomNetwork()">随机网络</button>
+        <button onclick="togglePulse()">切换脉冲</button>
+        <button onclick="createLayer()">创建层</button>
+    </div>
+
+    <div class="stats">
+        <div>FPS: <span id="fps">0</span></div>
+        <div>神经元: <span id="neurons">0</span></div>
+        <div>突触: <span id="synapses">0</span></div>
+        <div>信号: <span id="signals">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #00ffff;"></div>
+            <span>兴奋性神经元</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff00ff;"></div>
+            <span>抑制性神经元</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffff00;"></div>
+            <span>活跃信号</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 神经元数组
+        let neurons = [];
+        
+        // 突触数组
+        let synapses = [];
+        
+        // 信号数组
+        let signals = [];
+        
+        // 交互状态
+        let mouseX = 0, mouseY = 0;
+        let isDragging = false;
+        let draggedNeuron = null;
+        let isConnecting = false;
+        let connectionStart = null;
+        let autoPulse = true;
+        let lastPulseTime = 0;
+        const PULSE_INTERVAL = 2000;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 创建初始网络
+            createRandomNetwork();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMoved);
+            canvas.addEventListener('mousedown', mousePressed);
+            canvas.addEventListener('mouseup', mouseReleased);
+            canvas.addEventListener('contextmenu', rightClick);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 创建神经元
+        function createNeuron(x, y, type = 'excitatory') {
+            return {
+                x: x,
+                y: y,
+                type: type, // 'excitatory' or 'inhibitory'
+                radius: 20,
+                activation: 0,
+                threshold: 1.0,
+                potential: 0,
+                lastFire: 0,
+                fireRate: 100 + Math.random() * 100,
+                connections: []
+            };
+        }
+
+        // 创建突触
+        function createSynapse(pre, post) {
+            const weight = pre.type === 'excitatory' ? 0.5 + Math.random() * 0.5 : -0.3 - Math.random() * 0.4;
+            return {
+                pre: pre,
+                post: post,
+                weight: weight,
+                strength: Math.abs(weight)
+            };
+        }
+
+        // 创建信号
+        function createSignal(synapse) {
+            return {
+                synapse: synapse,
+                progress: 0,
+                speed: 0.02 + Math.random() * 0.02,
+                x: synapse.pre.x,
+                y: synapse.pre.y
+            };
+        }
+
+        // 创建随机网络
+        function createRandomNetwork() {
+            neurons = [];
+            synapses = [];
+            signals = [];
+            
+            const layers = 4;
+            const neuronsPerLayer = [4, 6, 6, 3];
+            const startX = 100;
+            const spacing = (canvas.width - 200) / (layers - 1);
+            
+            // 创建神经元
+            for (let l = 0; l < layers; l++) {
+                const numNeurons = neuronsPerLayer[l];
+                const layerHeight = (numNeurons - 1) * 80;
+                const startY = (canvas.height - layerHeight) / 2;
+                
+                for (let n = 0; n < numNeurons; n++) {
+                    const type = Math.random() > 0.3 ? 'excitatory' : 'inhibitory';
+                    neurons.push(createNeuron(
+                        startX + l * spacing,
+                        startY + n * 80,
+                        type
+                    ));
+                }
+            }
+            
+            // 创建突触连接
+            let neuronIndex = 0;
+            for (let l = 0; l < layers - 1; l++) {
+                const currentLayerStart = neuronIndex;
+                const currentLayerEnd = neuronIndex + neuronsPerLayer[l];
+                const nextLayerStart = currentLayerEnd;
+                const nextLayerEnd = nextLayerStart + neuronsPerLayer[l + 1];
+                
+                // 随机连接
+                for (let i = currentLayerStart; i < currentLayerEnd; i++) {
+                    for (let j = nextLayerStart; j < nextLayerEnd; j++) {
+                        if (Math.random() > 0.4) {
+                            synapses.push(createSynapse(neurons[i], neurons[j]));
+                        }
+                    }
+                }
+                
+                neuronIndex = currentLayerEnd;
+            }
+        }
+
+        // 创建层
+        function createLayer() {
+            const layerNum = Math.floor(neurons.length / 5);
+            const x = 100 + layerNum * 150;
+            const numNeurons = 3 + Math.floor(Math.random() * 4);
+            
+            for (let i = 0; i < numNeurons; i++) {
+                const type = Math.random() > 0.3 ? 'excitatory' : 'inhibitory';
+                neurons.push(createNeuron(
+                    x,
+                    canvas.height / 2 - 100 + i * 80,
+                    type
+                ));
+            }
+        }
+
+        // 触发神经元
+        function fireNeuron(neuron) {
+            neuron.activation = 1;
+            neuron.lastFire = Date.now();
+            
+            // 发送信号到所有连接的突触
+            for (let synapse of synapses) {
+                if (synapse.pre === neuron) {
+                    signals.push(createSignal(synapse));
+                }
+            }
+        }
+
+        // 更新神经元
+        function updateNeurons() {
+            const now = Date.now();
+            
+            for (let neuron of neurons) {
+                // 衰减激活
+                neuron.activation *= 0.95;
+                
+                // 随机激活（自动脉冲）
+                if (autoPulse && now - lastPulseTime > PULSE_INTERVAL) {
+                    if (Math.random() > 0.95 && neuron.activation < 0.3) {
+                        fireNeuron(neuron);
+                    }
+                }
+                
+                // 检查是否达到阈值
+                if (neuron.potential >= neuron.threshold) {
+                    fireNeuron(neuron);
+                    neuron.potential = 0;
+                }
+                
+                // 衰减电位
+                neuron.potential *= 0.99;
+            }
+            
+            if (now - lastPulseTime > PULSE_INTERVAL) {
+                lastPulseTime = now;
+            }
+        }
+
+        // 更新信号
+        function updateSignals() {
+            for (let i = signals.length - 1; i >= 0; i--) {
+                const signal = signals[i];
+                signal.progress += signal.speed;
+                
+                // 计算位置
+                const pre = signal.synapse.pre;
+                const post = signal.synapse.post;
+                signal.x = pre.x + (post.x - pre.x) * signal.progress;
+                signal.y = pre.y + (post.y - pre.y) * signal.progress;
+                
+                // 到达目标
+                if (signal.progress >= 1) {
+                    // 增加电位
+                    signal.synapse.post.potential += signal.synapse.weight;
+                    signals.splice(i, 1);
+                }
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制突触
+            for (let synapse of synapses) {
+                const alpha = 0.3 + synapse.strength * 0.5;
+                
+                ctx.strokeStyle = synapse.weight > 0 
+                    ? `rgba(0, 255, 255, ${alpha})`
+                    : `rgba(255, 0, 255, ${alpha})`;
+                ctx.lineWidth = synapse.strength * 3;
+                
+                ctx.beginPath();
+                ctx.moveTo(synapse.pre.x, synapse.pre.y);
+                ctx.lineTo(synapse.post.x, synapse.post.y);
+                ctx.stroke();
+            }
+            
+            // 绘制连接线（正在创建）
+            if (isConnecting && connectionStart) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(connectionStart.x, connectionStart.y);
+                ctx.lineTo(mouseX, mouseY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            // 绘制信号
+            for (let signal of signals) {
+                const gradient = ctx.createRadialGradient(
+                    signal.x, signal.y, 0,
+                    signal.x, signal.y, 8
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 0, 1)');
+                gradient.addColorStop(0.5, 'rgba(255, 255, 0, 0.5)');
+                gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(signal.x, signal.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 绘制神经元
+            for (let neuron of neurons) {
+                // 外圈光晕
+                const glowRadius = neuron.radius + neuron.activation * 20;
+                const gradient = ctx.createRadialGradient(
+                    neuron.x, neuron.y, neuron.radius,
+                    neuron.x, neuron.y, glowRadius
+                );
+                
+                if (neuron.type === 'excitatory') {
+                    gradient.addColorStop(0, `rgba(0, 255, 255, ${0.5 + neuron.activation * 0.5})`);
+                    gradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+                } else {
+                    gradient.addColorStop(0, `rgba(255, 0, 255, ${0.5 + neuron.activation * 0.5})`);
+                    gradient.addColorStop(1, 'rgba(255, 0, 255, 0)');
+                }
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(neuron.x, neuron.y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 神经元主体
+                ctx.fillStyle = neuron.type === 'excitatory' 
+                    ? `rgba(0, 255, 255, ${0.7 + neuron.activation * 0.3})`
+                    : `rgba(255, 0, 255, ${0.7 + neuron.activation * 0.3})`;
+                ctx.beginPath();
+                ctx.arc(neuron.x, neuron.y, neuron.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 边框
+                ctx.strokeStyle = neuron.type === 'excitatory' 
+                    ? '#00ffff' 
+                    : '#ff00ff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 电位条
+                const barWidth = 30;
+                const barHeight = 4;
+                const potentialWidth = (neuron.potential / neuron.threshold) * barWidth;
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(neuron.x - barWidth / 2, neuron.y + 25, barWidth, barHeight);
+                
+                ctx.fillStyle = neuron.potential >= neuron.threshold * 0.8 
+                    ? '#ffff00' 
+                    : '#00ff00';
+                ctx.fillRect(neuron.x - barWidth / 2, neuron.y + 25, potentialWidth, barHeight);
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+                document.getElementById('neurons').textContent = neurons.length;
+                document.getElementById('synapses').textContent = synapses.length;
+                document.getElementById('signals').textContent = signals.length;
+            }
+            
+            // 更新
+            updateNeurons();
+            updateSignals();
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 查找神经元
+        function findNeuron(x, y) {
+            for (let neuron of neurons) {
+                const dist = Math.sqrt((x - neuron.x) ** 2 + (y - neuron.y) ** 2);
+                if (dist < neuron.radius) {
+                    return neuron;
+                }
+            }
+            return null;
+        }
+
+        // 事件处理
+        function mouseMoved(e) {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            if (isDragging && draggedNeuron) {
+                draggedNeuron.x = mouseX;
+                draggedNeuron.y = mouseY;
+            }
+        }
+
+        function mousePressed(e) {
+            if (e.button === 0) { // 左键
+                const neuron = findNeuron(e.clientX, e.clientY);
+                
+                if (neuron) {
+                    if (e.shiftKey) {
+                        // Shift + 点击 = 开始连接
+                        isConnecting = true;
+                        connectionStart = neuron;
+                    } else {
+                        // 普通点击 = 拖动或触发
+                        if (e.ctrlKey) {
+                            fireNeuron(neuron);
+                        } else {
+                            isDragging = true;
+                            draggedNeuron = neuron;
+                        }
+                    }
+                } else {
+                    // 点击空白 = 添加神经元
+                    const type = Math.random() > 0.3 ? 'excitatory' : 'inhibitory';
+                    neurons.push(createNeuron(e.clientX, e.clientY, type));
+                }
+            }
+        }
+
+        function mouseReleased(e) {
+            if (isConnecting && connectionStart) {
+                const neuron = findNeuron(e.clientX, e.clientY);
+                if (neuron && neuron !== connectionStart) {
+                    // 创建突触
+                    synapses.push(createSynapse(connectionStart, neuron));
+                }
+            }
+            
+            isDragging = false;
+            draggedNeuron = null;
+            isConnecting = false;
+            connectionStart = null;
+        }
+
+        function rightClick(e) {
+            e.preventDefault();
+            
+            const neuron = findNeuron(e.clientX, e.clientY);
+            if (neuron) {
+                // 删除神经元及其突触
+                synapses = synapses.filter(s => s.pre !== neuron && s.post !== neuron);
+                signals = signals.filter(s => s.synapse.pre !== neuron && s.synapse.post !== neuron);
+                neurons = neurons.filter(n => n !== neuron);
+            }
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            const neuron = findNeuron(touch.clientX, touch.clientY);
+            if (neuron) {
+                isDragging = true;
+                draggedNeuron = neuron;
+            } else {
+                const type = Math.random() > 0.3 ? 'excitatory' : 'inhibitory';
+                neurons.push(createNeuron(touch.clientX, touch.clientY, type));
+            }
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            
+            if (isDragging && draggedNeuron) {
+                draggedNeuron.x = mouseX;
+                draggedNeuron.y = mouseY;
+            }
+        }
+
+        function touchEnd() {
+            isDragging = false;
+            draggedNeuron = null;
+        }
+
+        // 控制函数
+        function resetNetwork() {
+            neurons = [];
+            synapses = [];
+            signals = [];
+        }
+
+        function togglePulse() {
+            autoPulse = !autoPulse;
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
