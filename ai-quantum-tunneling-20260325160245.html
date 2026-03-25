@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>量子隧穿 - Quantum Tunneling</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a1a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(150, 100, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #9664ff;
+            text-shadow: 0 0 10px rgba(150, 100, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(150, 100, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(150, 100, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #9664ff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #9664ff 0%, #6a3de8 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(150, 100, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>⚛️ 量子隧穿</h3>
+        <div>粒子数量: <span id="particleCount">0</span></div>
+        <div>隧穿成功: <span id="tunneledCount">0</span></div>
+        <div>隧穿概率: <span id="tunnelProb">0</span>%</div>
+        <div>势垒高度: <span id="barrierHeight">0</span> eV</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>势垒高度:</label>
+            <input type="range" id="barrierHeight" min="1" max="100" value="50">
+            <span class="value" id="barrierHeightValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>势垒宽度:</label>
+            <input type="range" id="barrierWidth" min="10" max="200" value="80">
+            <span class="value" id="barrierWidthValue">80</span>
+        </div>
+        <div class="control-item">
+            <label>粒子能量:</label>
+            <input type="range" id="particleEnergy" min="1" max="100" value="40">
+            <span class="value" id="particleEnergyValue">40</span>
+        </div>
+        <div class="control-item">
+            <label>粒子密度:</label>
+            <input type="range" id="particleDensity" min="10" max="100" value="50">
+            <span class="value" id="particleDensityValue">50</span>
+        </div>
+        <button id="fireBtn">发射粒子</button>
+        <button id="autoFireBtn">自动发射</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            barrierHeight: 50,
+            barrierWidth: 80,
+            particleEnergy: 40,
+            particleDensity: 50
+        };
+        
+        // 势垒
+        let barrier = {
+            x: width * 0.4,
+            width: config.barrierWidth,
+            height: config.barrierHeight,
+            color: 'rgba(255, 100, 100, 0.8)'
+        };
+        
+        // 粒子
+        let particles = [];
+        
+        // 统计
+        let stats = {
+            total: 0,
+            tunneled: 0
+        };
+        
+        // 自动发射
+        let autoFire = false;
+        let lastFire = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 量子粒子类
+        class QuantumParticle {
+            constructor() {
+                this.x = 50;
+                this.y = height / 2 + (Math.random() - 0.5) * 200;
+                this.vx = 3 + Math.random() * 2;
+                this.vy = 0;
+                this.radius = 5;
+                this.energy = config.particleEnergy;
+                this.alive = true;
+                this.tunneled = false;
+                this.phase = Math.random() * Math.PI * 2;
+                this.waveAmplitude = 20;
+                this.alpha = 1;
+            }
+            
+            // 计算隧穿概率
+            calculateTunnelProbability() {
+                // 简化的隧穿概率公式：P ∝ exp(-2κd)
+                // κ = √(2m(V-E))/ℏ
+                const V = config.barrierHeight; // 势垒高度
+                const E = this.energy; // 粒子能量
+                const d = config.barrierWidth / 100; // 势垒宽度（归一化）
+                
+                if (E >= V) {
+                    return 1; // 能量足够，经典情况
+                }
+                
+                // 隧穿概率
+                const kappa = Math.sqrt(2 * (V - E));
+                const probability = Math.exp(-2 * kappa * d);
+                
+                return probability;
+            }
+            
+            update() {
+                if (!this.alive) return;
+                
+                // 波动相位
+                this.phase += 0.1;
+                
+                // 检查是否接近势垒
+                const barrierLeft = barrier.x;
+                const barrierRight = barrier.x + barrier.width;
+                
+                if (this.x >= barrierLeft - 10 && this.x <= barrierRight + 10) {
+                    // 在势垒范围内
+                    const tunnelProb = this.calculateTunnelProbability();
+                    
+                    // 决定是否隧穿
+                    if (Math.random() < tunnelProb) {
+                        // 隧穿成功
+                        this.tunneled = true;
+                        this.alpha = 0.8;
+                    } else {
+                        // 反射
+                        this.vx = -Math.abs(this.vx);
+                        this.tunneled = false;
+                    }
+                    
+                    // 更新位置
+                    this.x += this.vx;
+                } else {
+                    // 正常运动
+                    this.x += this.vx;
+                    
+                    // 波动效果
+                    if (!this.tunneled) {
+                        this.y += Math.sin(this.phase) * 0.5;
+                    }
+                }
+                
+                // 边界检查
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.alive = false;
+                }
+            }
+            
+            draw() {
+                if (!this.alive) return;
+                
+                // 颜色：隧穿成功的粒子变绿
+                const hue = this.tunneled ? 120 : 270;
+                const saturation = 70;
+                const lightness = 50 + this.energy * 0.5;
+                
+                // 波函数可视化（波动效果）
+                const waveY = this.y + Math.sin(this.phase) * this.waveAmplitude * (1 - Math.abs(this.x - barrier.x - barrier.width / 2) / (barrier.width * 2));
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, waveY, 0,
+                    this.x, waveY, this.radius * 3
+                );
+                
+                gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness}%, ${this.alpha})`);
+                gradient.addColorStop(0.5, `hsla(${hue}, ${saturation}%, ${lightness}%, ${this.alpha * 0.3})`);
+                gradient.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, waveY, this.radius * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, waveY, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness + 20}%, ${this.alpha})`;
+                ctx.fill();
+                
+                // 速度方向
+                if (Math.abs(this.vx) > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, waveY);
+                    ctx.lineTo(this.x + this.vx * 5, waveY);
+                    ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${this.alpha * 0.5})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 绘制势垒
+        function drawBarrier() {
+            const x = barrier.x;
+            const w = barrier.width;
+            const h = height * 0.6;
+            const y = (height - h) / 2;
+            
+            // 势垒渐变
+            const gradient = ctx.createLinearGradient(x, y, x + w, y);
+            gradient.addColorStop(0, 'rgba(255, 100, 100, 0.3)');
+            gradient.addColorStop(0.5, `rgba(255, 100, 100, ${0.5 + config.barrierHeight * 0.005})`);
+            gradient.addColorStop(1, 'rgba(255, 100, 100, 0.3)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, y, w, h);
+            
+            // 势垒边框
+            ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            
+            // 势垒标签
+            ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(`V = ${config.barrierHeight} eV`, x + w / 2, y - 10);
+            ctx.fillText('势垒', x + w / 2, y + h + 20);
+        }
+        
+        // 绘制区域标签
+        function drawLabels() {
+            ctx.fillStyle = 'rgba(150, 100, 255, 0.6)';
+            ctx.font = '16px Courier New';
+            
+            // 左侧区域
+            ctx.textAlign = 'center';
+            ctx.fillText('入射区', 100, height / 2);
+            ctx.font = '12px Courier New';
+            ctx.fillText('E < V', 100, height / 2 + 20);
+            
+            // 右侧区域
+            ctx.font = '16px Courier New';
+            ctx.fillText('透射区', width - 100, height / 2);
+            ctx.font = '12px Courier New';
+            ctx.fillText('隧穿后', width - 100, height / 2 + 20);
+        }
+        
+        // 发射粒子
+        function fireParticles() {
+            const count = config.particleDensity;
+            
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    particles.push(new QuantumParticle());
+                    stats.total++;
+                }, i * 50);
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 自动发射
+            if (autoFire && currentTime - lastFire > 2000) {
+                fireParticles();
+                lastFire = currentTime;
+            }
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制势垒
+            drawBarrier();
+            
+            // 绘制标签
+            drawLabels();
+            
+            // 更新和绘制粒子
+            particles = particles.filter(p => p.alive);
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 统计隧穿数量
+            let tunneled = 0;
+            particles.forEach(p => {
+                if (p.tunneled && p.x > barrier.x + barrier.width) {
+                    tunneled++;
+                }
+            });
+            
+            // 更新统计
+            document.getElementById('particleCount').textContent = particles.length;
+            document.getElementById('tunneledCount').textContent = tunneled;
+            document.getElementById('barrierHeight').textContent = config.barrierHeight;
+            
+            // 计算隧穿概率
+            if (stats.total > 0) {
+                const prob = (tunneled / particles.length * 100) || 0;
+                document.getElementById('tunnelProb').textContent = prob.toFixed(1);
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击发射单个粒子
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            
+            const particle = new QuantumParticle();
+            particle.y = y;
+            particles.push(particle);
+            stats.total++;
+        });
+        
+        // 鼠标交互2：拖动调整势垒位置
+        let isDragging = false;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            
+            if (mouseX >= barrier.x && mouseX <= barrier.x + barrier.width) {
+                isDragging = true;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                barrier.x = mouseX - barrier.width / 2;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // 控制面板事件
+        document.getElementById('barrierHeight').addEventListener('input', (e) => {
+            config.barrierHeight = parseInt(e.target.value);
+            document.getElementById('barrierHeightValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('barrierWidth').addEventListener('input', (e) => {
+            config.barrierWidth = parseInt(e.target.value);
+            barrier.width = config.barrierWidth;
+            document.getElementById('barrierWidthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleEnergy').addEventListener('input', (e) => {
+            config.particleEnergy = parseInt(e.target.value);
+            document.getElementById('particleEnergyValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            config.particleDensity = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('fireBtn').addEventListener('click', () => {
+            fireParticles();
+        });
+        
+        document.getElementById('autoFireBtn').addEventListener('click', (e) => {
+            autoFire = !autoFire;
+            e.target.textContent = autoFire ? '停止发射' : '自动发射';
+            e.target.style.background = autoFire 
+                ? 'linear-gradient(135deg, #ff6464 0%, #c83232 100%)'
+                : 'linear-gradient(135deg, #9664ff 0%, #6a3de8 100%)';
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            particles = [];
+            stats.total = 0;
+            stats.tunneled = 0;
+            autoFire = false;
+            document.getElementById('autoFireBtn').textContent = '自动发射';
+            document.getElementById('autoFireBtn').style.background = 
+                'linear-gradient(135deg, #9664ff 0%, #6a3de8 100%)';
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            barrier.x = width * 0.4;
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleDensity = 30;
+            document.getElementById('particleDensity').value = 30;
+            document.getElementById('particleDensityValue').textContent = 30;
+        }
+        
+        // 启动动画
+        animate(performance.now());
+        
+        // 启动时发射一批粒子
+        setTimeout(() => {
+            fireParticles();
+        }, 1000);
+    </script>
+</body>
+</html>
