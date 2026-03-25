@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>白洞喷发 - White Hole</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #fff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #fff 0%, #ccc 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>⚪ 白洞喷发</h3>
+        <div>粒子数量: <span id="particleCount">0</span></div>
+        <div>喷发强度: <span id="eruptionPower">0</span></div>
+        <div>排斥力: <span id="repulsionForce">0</span></div>
+        <div>能量密度: <span id="energyDensity">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>粒子密度:</label>
+            <input type="range" id="particleDensity" min="100" max="1000" value="500">
+            <span class="value" id="particleDensityValue">500</span>
+        </div>
+        <div class="control-item">
+            <label>喷发强度:</label>
+            <input type="range" id="eruptionPower" min="1" max="20" value="10">
+            <span class="value" id="eruptionPowerValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>排斥力:</label>
+            <input type="range" id="repulsionForce" min="10" max="200" value="100">
+            <span class="value" id="repulsionForceValue">100</span>
+        </div>
+        <div class="control-item">
+            <label>能量密度:</label>
+            <input type="range" id="energyDensity" min="0" max="100" value="50">
+            <span class="value" id="energyDensityValue">50</span>
+        </div>
+        <button id="eruptBtn">大喷发</button>
+        <button id="pulseBtn">能量脉冲</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            particleDensity: 500,
+            eruptionPower: 10,
+            repulsionForce: 100,
+            energyDensity: 50
+        };
+        
+        // 白洞位置
+        let whiteHoleX = width / 2;
+        let whiteHoleY = height / 2;
+        
+        // 粒子
+        let particles = [];
+        
+        // 时间
+        let time = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // 从白洞中心喷发
+                this.x = whiteHoleX;
+                this.y = whiteHoleY;
+                
+                // 随机喷发方向
+                const angle = Math.random() * Math.PI * 2;
+                const speed = (Math.random() * 0.5 + 0.5) * config.eruptionPower;
+                
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.maxLife = Math.random() * 200 + 100;
+                this.age = 0;
+                
+                // 粒子类型（不同颜色）
+                this.type = this.getParticleType();
+                this.color = this.getParticleColor();
+            }
+            
+            getParticleType() {
+                const rand = Math.random();
+                if (rand < 0.6) return 'matter';      // 物质粒子
+                if (rand < 0.85) return 'energy';     // 能量粒子
+                if (rand < 0.95) return 'radiation';  // 辐射粒子
+                return 'antimatter';                  // 反物质粒子
+            }
+            
+            getParticleColor() {
+                switch(this.type) {
+                    case 'matter': 
+                        return { r: 255, g: 255, b: 255 }; // 白色
+                    case 'energy': 
+                        return { r: 255, g: 255, b: 150 }; // 黄白色
+                    case 'radiation': 
+                        return { r: 200, g: 220, b: 255 }; // 淡蓝色
+                    case 'antimatter': 
+                        return { r: 255, g: 200, b: 255 }; // 粉白色
+                    default: 
+                        return { r: 255, g: 255, b: 255 };
+                }
+            }
+            
+            update() {
+                // 白洞的排斥力（与黑洞相反）
+                const dx = this.x - whiteHoleX;
+                const dy = this.y - whiteHoleY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < 300 && distance > 10) {
+                    // 排斥力：距离越近，排斥力越强
+                    const force = (config.repulsionForce * 0.1) / (distance * 0.1);
+                    const ax = (dx / distance) * force;
+                    const ay = (dy / distance) * force;
+                    
+                    this.vx += ax;
+                    this.vy += ay;
+                }
+                
+                // 速度衰减（宇宙膨胀阻力）
+                this.vx *= 0.995;
+                this.vy *= 0.995;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 年龄增长
+                this.age++;
+                this.life = 1 - (this.age / this.maxLife);
+                
+                // 重置条件
+                if (this.life <= 0 || 
+                    this.x < -50 || this.x > width + 50 || 
+                    this.y < -50 || this.y > height + 50) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const alpha = this.life * 0.8;
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                
+                gradient.addColorStop(0, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha})`);
+                gradient.addColorStop(0.5, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha * 0.3})`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha})`;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制白洞
+        function drawWhiteHole() {
+            // 外层光晕
+            const outerGlow = ctx.createRadialGradient(
+                whiteHoleX, whiteHoleY, 0,
+                whiteHoleX, whiteHoleY, 150
+            );
+            
+            outerGlow.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+            outerGlow.addColorStop(0.2, 'rgba(255, 255, 255, 0.6)');
+            outerGlow.addColorStop(0.4, 'rgba(200, 220, 255, 0.3)');
+            outerGlow.addColorStop(0.7, 'rgba(150, 180, 255, 0.1)');
+            outerGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.beginPath();
+            ctx.arc(whiteHoleX, whiteHoleY, 150, 0, Math.PI * 2);
+            ctx.fillStyle = outerGlow;
+            ctx.fill();
+            
+            // 内层核心
+            const innerCore = ctx.createRadialGradient(
+                whiteHoleX, whiteHoleY, 0,
+                whiteHoleX, whiteHoleY, 50
+            );
+            
+            innerCore.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            innerCore.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+            innerCore.addColorStop(1, 'rgba(255, 255, 255, 0.4)');
+            
+            ctx.beginPath();
+            ctx.arc(whiteHoleX, whiteHoleY, 50, 0, Math.PI * 2);
+            ctx.fillStyle = innerCore;
+            ctx.fill();
+            
+            // 脉冲环
+            const pulseRadius = 60 + Math.sin(time * 0.1) * 20;
+            ctx.beginPath();
+            ctx.arc(whiteHoleX, whiteHoleY, pulseRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + Math.sin(time * 0.1) * 0.2})`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+        
+        // 绘制能量场
+        function drawEnergyField() {
+            const fieldIntensity = config.energyDensity / 100;
+            
+            // 多层能量波纹
+            for (let i = 0; i < 8; i++) {
+                const phase = time * 0.02 + i * 0.5;
+                const radius = 100 + i * 30;
+                const alpha = Math.sin(phase) * 0.2 * fieldIntensity;
+                
+                ctx.beginPath();
+                ctx.arc(whiteHoleX, whiteHoleY, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${Math.abs(alpha)})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+        
+        // 绘制宇宙背景
+        function drawCosmicBackground() {
+            // 远处的星系
+            for (let i = 0; i < 50; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const size = Math.random() * 1.5;
+                const alpha = Math.random() * 0.3 + 0.1;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.fill();
+            }
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            
+            for (let i = 0; i < config.particleDensity; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += 0.016;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制宇宙背景
+            drawCosmicBackground();
+            
+            // 绘制能量场
+            drawEnergyField();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 绘制白洞
+            drawWhiteHole();
+            
+            // 更新信息
+            document.getElementById('particleCount').textContent = particles.length;
+            document.getElementById('eruptionPower').textContent = config.eruptionPower;
+            document.getElementById('repulsionForce').textContent = config.repulsionForce;
+            document.getElementById('energyDensity').textContent = config.energyDensity;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击移动白洞
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            whiteHoleX = e.clientX - rect.left;
+            whiteHoleY = e.clientY - rect.top;
+        });
+        
+        // 鼠标交互2：右键触发喷发
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            
+            // 添加大量粒子
+            for (let i = 0; i < 100; i++) {
+                if (particles.length < 2000) {
+                    particles.push(new Particle());
+                }
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleDensity = newCount;
+        });
+        
+        document.getElementById('eruptionPower').addEventListener('input', (e) => {
+            config.eruptionPower = parseInt(e.target.value);
+            document.getElementById('eruptionPowerValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('repulsionForce').addEventListener('input', (e) => {
+            config.repulsionForce = parseInt(e.target.value);
+            document.getElementById('repulsionForceValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('energyDensity').addEventListener('input', (e) => {
+            config.energyDensity = parseInt(e.target.value);
+            document.getElementById('energyDensityValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('eruptBtn').addEventListener('click', () => {
+            // 大喷发：临时增加强度
+            const originalPower = config.eruptionPower;
+            config.eruptionPower = 50;
+            
+            // 添加大量粒子
+            for (let i = 0; i < 200; i++) {
+                if (particles.length < 3000) {
+                    particles.push(new Particle());
+                }
+            }
+            
+            // 闪光效果
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.fillRect(0, 0, width, height);
+            
+            setTimeout(() => {
+                config.eruptionPower = originalPower;
+            }, 500);
+        });
+        
+        document.getElementById('pulseBtn').addEventListener('click', () => {
+            // 能量脉冲
+            const originalDensity = config.energyDensity;
+            config.energyDensity = 100;
+            
+            setTimeout(() => {
+                config.energyDensity = originalDensity;
+            }, 1000);
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            whiteHoleX = width / 2;
+            whiteHoleY = height / 2;
+            initParticles();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            whiteHoleX = width / 2;
+            whiteHoleY = height / 2;
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleDensity = 300;
+            document.getElementById('particleDensity').value = 300;
+            document.getElementById('particleDensityValue').textContent = 300;
+        }
+        
+        // 初始化并启动
+        initParticles();
+        animate(performance.now());
+    </script>
+</body>
+</html>
