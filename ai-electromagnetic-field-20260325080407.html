@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电磁场 - Electromagnetic Field</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(0, 255, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #00ffff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #00ffff 0%, #0080ff 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>⚡ 电磁场</h3>
+        <div>电荷数量: <span id="chargeCount">0</span></div>
+        <div>场线数量: <span id="fieldLineCount">0</span></div>
+        <div>波频率: <span id="waveFreq">0</span> Hz</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>场线密度:</label>
+            <input type="range" id="fieldDensity" min="10" max="100" value="40">
+            <span class="value" id="fieldDensityValue">40</span>
+        </div>
+        <div class="control-item">
+            <label>波频率:</label>
+            <input type="range" id="waveFrequency" min="1" max="20" value="10">
+            <span class="value" id="waveFrequencyValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>波强度:</label>
+            <input type="range" id="waveIntensity" min="1" max="100" value="50">
+            <span class="value" id="waveIntensityValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>粒子数量:</label>
+            <input type="range" id="particleCount" min="100" max="1000" value="500">
+            <span class="value" id="particleCountValue">500</span>
+        </div>
+        <button id="addChargeBtn">添加电荷</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            fieldDensity: 40,
+            waveFrequency: 10,
+            waveIntensity: 50,
+            particleCount: 500
+        };
+        
+        // 电荷
+        let charges = [
+            { x: width * 0.35, y: height / 2, charge: 1, radius: 20 },   // 正电荷
+            { x: width * 0.65, y: height / 2, charge: -1, radius: 20 }  // 负电荷
+        ];
+        
+        // 电磁波粒子
+        let particles = [];
+        
+        // 场线
+        let fieldLines = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 波相位
+        let wavePhase = 0;
+        
+        // 颜色主题
+        const colors = {
+            positive: { r: 255, g: 100, b: 100 },   // 红色
+            negative: { r: 100, g: 100, b: 255 },   // 蓝色
+            field: { r: 0, g: 255, b: 255 },        // 青色
+            wave: { r: 255, g: 255, b: 0 }          // 黄色
+        };
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // 随机位置
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                
+                // 速度
+                this.vx = 0;
+                this.vy = 0;
+                
+                // 大小和颜色
+                this.size = Math.random() * 2 + 1;
+                this.alpha = Math.random() * 0.5 + 0.5;
+                this.life = 1;
+                
+                // 颜色
+                this.color = { ...colors.field };
+            }
+            
+            update() {
+                // 计算电场力
+                let Ex = 0, Ey = 0;
+                
+                charges.forEach(charge => {
+                    const dx = this.x - charge.x;
+                    const dy = this.y - charge.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 10) {
+                        // 电场强度 E = k * q / r^2
+                        const E = (charge.charge * 1000) / (distance * distance);
+                        Ex += E * dx / distance;
+                        Ey += E * dy / distance;
+                    }
+                });
+                
+                // 电磁波影响
+                const waveEffect = Math.sin(wavePhase - this.x * 0.01) * config.waveIntensity * 0.1;
+                Ey += waveEffect;
+                
+                // 更新速度
+                this.vx += Ex * 0.01;
+                this.vy += Ey * 0.01;
+                
+                // 速度衰减
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 生命衰减
+                this.life -= 0.002;
+                
+                // 边界检查
+                if (this.x < 0 || this.x > width || 
+                    this.y < 0 || this.y > height ||
+                    this.life <= 0) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                // 速度影响颜色
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const hue = (180 + speed * 10) % 360;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${this.alpha * this.life})`;
+                ctx.fill();
+                
+                // 发光效果
+                if (speed > 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - this.vx * 3, this.y - this.vy * 3);
+                    ctx.strokeStyle = `hsla(${hue}, 80%, 70%, ${this.alpha * this.life * 0.5})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 场线类
+        class FieldLine {
+            constructor(startX, startY, direction) {
+                this.points = [{ x: startX, y: startY }];
+                this.direction = direction;
+                this.alpha = 1;
+            }
+            
+            update() {
+                const lastPoint = this.points[this.points.length - 1];
+                
+                // 计算电场方向
+                let Ex = 0, Ey = 0;
+                
+                charges.forEach(charge => {
+                    const dx = lastPoint.x - charge.x;
+                    const dy = lastPoint.y - charge.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 10) {
+                        const E = (charge.charge * 100) / (distance * distance);
+                        Ex += E * dx / distance;
+                        Ey += E * dy / distance;
+                    }
+                });
+                
+                // 归一化
+                const magnitude = Math.sqrt(Ex * Ex + Ey * Ey);
+                if (magnitude > 0) {
+                    Ex /= magnitude;
+                    Ey /= magnitude;
+                }
+                
+                // 添加新点
+                const step = 10;
+                const newX = lastPoint.x + Ex * step * this.direction;
+                const newY = lastPoint.y + Ey * step * this.direction;
+                
+                // 检查是否到达边界或电荷
+                let reachedCharge = false;
+                charges.forEach(charge => {
+                    const dx = newX - charge.x;
+                    const dy = newY - charge.y;
+                    if (Math.sqrt(dx * dx + dy * dy) < charge.radius) {
+                        reachedCharge = true;
+                    }
+                });
+                
+                if (newX > 0 && newX < width && 
+                    newY > 0 && newY < height && 
+                    !reachedCharge &&
+                    this.points.length < 200) {
+                    this.points.push({ x: newX, y: newY });
+                } else {
+                    this.alpha -= 0.01;
+                }
+                
+                return this.alpha > 0;
+            }
+            
+            draw() {
+                if (this.points.length < 2) return;
+                
+                ctx.beginPath();
+                ctx.moveTo(this.points[0].x, this.points[0].y);
+                
+                for (let i = 1; i < this.points.length; i++) {
+                    ctx.lineTo(this.points[i].x, this.points[i].y);
+                }
+                
+                ctx.strokeStyle = `rgba(0, 255, 255, ${this.alpha * 0.3})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                // 绘制箭头
+                if (this.points.length > 10) {
+                    const p1 = this.points[this.points.length - 10];
+                    const p2 = this.points[this.points.length - 1];
+                    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+                    
+                    ctx.save();
+                    ctx.translate(p2.x, p2.y);
+                    ctx.rotate(angle);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(-8, -4);
+                    ctx.lineTo(-8, 4);
+                    ctx.closePath();
+                    ctx.fillStyle = `rgba(0, 255, 255, ${this.alpha * 0.5})`;
+                    ctx.fill();
+                    
+                    ctx.restore();
+                }
+            }
+        }
+        
+        // 绘制电荷
+        function drawCharges() {
+            charges.forEach(charge => {
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    charge.x, charge.y, 0,
+                    charge.x, charge.y, charge.radius * 3
+                );
+                
+                const color = charge.charge > 0 ? colors.positive : colors.negative;
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0.8)`);
+                gradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, 0.3)`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(charge.x, charge.y, charge.radius * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(charge.x, charge.y, charge.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                ctx.fill();
+                
+                // 符号
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(charge.charge > 0 ? '+' : '−', charge.x, charge.y);
+            });
+        }
+        
+        // 绘制电磁波
+        function drawWaves() {
+            const waveAmplitude = config.waveIntensity;
+            
+            ctx.strokeStyle = `rgba(255, 255, 0, 0.2)`;
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            for (let x = 0; x < width; x += 2) {
+                const y = height / 2 + Math.sin(wavePhase - x * 0.01) * waveAmplitude;
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // 波的标签
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.6)';
+            ctx.font = '12px Courier New';
+            ctx.fillText('E-field (Electric)', 20, height / 2 - waveAmplitude - 10);
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 初始化场线
+        function initFieldLines() {
+            fieldLines = [];
+            
+            // 从正电荷发射场线
+            const positiveCharge = charges.find(c => c.charge > 0);
+            if (positiveCharge) {
+                for (let i = 0; i < config.fieldDensity; i++) {
+                    const angle = (Math.PI * 2 / config.fieldDensity) * i;
+                    const startX = positiveCharge.x + Math.cos(angle) * (positiveCharge.radius + 5);
+                    const startY = positiveCharge.y + Math.sin(angle) * (positiveCharge.radius + 5);
+                    fieldLines.push(new FieldLine(startX, startY, 1));
+                }
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新波相位
+            wavePhase += config.waveFrequency * 0.01;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制电磁波
+            drawWaves();
+            
+            // 更新和绘制场线
+            fieldLines = fieldLines.filter(line => line.update());
+            fieldLines.forEach(line => line.draw());
+            
+            // 绘制电荷
+            drawCharges();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新信息
+            document.getElementById('chargeCount').textContent = charges.length;
+            document.getElementById('fieldLineCount').textContent = fieldLines.length;
+            document.getElementById('waveFreq').textContent = config.waveFrequency;
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：拖动电荷
+        let isDragging = false;
+        let draggedCharge = null;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 检查是否点击了电荷
+            charges.forEach(charge => {
+                const dx = mouseX - charge.x;
+                const dy = mouseY - charge.y;
+                if (Math.sqrt(dx * dx + dy * dy) < charge.radius * 2) {
+                    isDragging = true;
+                    draggedCharge = charge;
+                }
+            });
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging && draggedCharge) {
+                const rect = canvas.getBoundingClientRect();
+                draggedCharge.x = e.clientX - rect.left;
+                draggedCharge.y = e.clientY - rect.top;
+                initFieldLines();
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            draggedCharge = null;
+        });
+        
+        // 鼠标交互2：点击添加电荷
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 检查是否点击在电荷上
+            let clickedOnCharge = false;
+            charges.forEach(charge => {
+                const dx = x - charge.x;
+                const dy = y - charge.y;
+                if (Math.sqrt(dx * dx + dy * dy) < charge.radius * 2) {
+                    clickedOnCharge = true;
+                }
+            });
+            
+            if (!clickedOnCharge) {
+                charges.push({
+                    x: x,
+                    y: y,
+                    charge: Math.random() > 0.5 ? 1 : -1,
+                    radius: 15
+                });
+                initFieldLines();
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('fieldDensity').addEventListener('input', (e) => {
+            config.fieldDensity = parseInt(e.target.value);
+            document.getElementById('fieldDensityValue').textContent = e.target.value;
+            initFieldLines();
+        });
+        
+        document.getElementById('waveFrequency').addEventListener('input', (e) => {
+            config.waveFrequency = parseInt(e.target.value);
+            document.getElementById('waveFrequencyValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('waveIntensity').addEventListener('input', (e) => {
+            config.waveIntensity = parseInt(e.target.value);
+            document.getElementById('waveIntensityValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleCount').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleCountValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleCount = newCount;
+        });
+        
+        document.getElementById('addChargeBtn').addEventListener('click', () => {
+            charges.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                charge: Math.random() > 0.5 ? 1 : -1,
+                radius: 15
+            });
+            initFieldLines();
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            charges = [
+                { x: width * 0.35, y: height / 2, charge: 1, radius: 20 },
+                { x: width * 0.65, y: height / 2, charge: -1, radius: 20 }
+            ];
+            initParticles();
+            initFieldLines();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+            initFieldLines();
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleCount = 300;
+            config.fieldDensity = 30;
+            document.getElementById('particleCount').value = 300;
+            document.getElementById('particleCountValue').textContent = 300;
+            document.getElementById('fieldDensity').value = 30;
+            document.getElementById('fieldDensityValue').textContent = 30;
+        }
+        
+        // 初始化并启动
+        initParticles();
+        initFieldLines();
+        animate(performance.now());
+    </script>
+</body>
+</html>
