@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>引力波 - Gravitational Waves</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(147, 51, 234, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(147, 51, 234, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #a855f7;
+            text-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(147, 51, 234, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(147, 51, 234, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #a855f7;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(168, 85, 247, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌀 引力波</h3>
+        <div>黑洞数量: <span id="blackholeCount">0</span></div>
+        <div>波纹数量: <span id="waveCount">0</span></div>
+        <div>时空扭曲: <span id="spacetimeDistortion">0</span>%</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>波纹频率:</label>
+            <input type="range" id="waveFrequency" min="1" max="20" value="8">
+            <span class="value" id="waveFrequencyValue">8</span>
+        </div>
+        <div class="control-item">
+            <label>波纹强度:</label>
+            <input type="range" id="waveIntensity" min="1" max="100" value="60">
+            <span class="value" id="waveIntensityValue">60</span>
+        </div>
+        <div class="control-item">
+            <label>网格密度:</label>
+            <input type="range" id="gridDensity" min="10" max="50" value="25">
+            <span class="value" id="gridDensityValue">25</span>
+        </div>
+        <div class="control-item">
+            <label>粒子数量:</label>
+            <input type="range" id="particleCount" min="100" max="1000" value="500">
+            <span class="value" id="particleCountValue">500</span>
+        </div>
+        <button id="mergeBtn">黑洞合并</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            waveFrequency: 8,
+            waveIntensity: 60,
+            gridDensity: 25,
+            particleCount: 500
+        };
+        
+        // 黑洞系统
+        let blackholes = [
+            { x: width * 0.4, y: height / 2, mass: 100, vx: 0.5, vy: 0 },
+            { x: width * 0.6, y: height / 2, mass: 100, vx: -0.5, vy: 0 }
+        ];
+        
+        // 引力波
+        let waves = [];
+        
+        // 时空网格点
+        let gridPoints = [];
+        
+        // 粒子
+        let particles = [];
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 时间
+        let time = 0;
+        
+        // 颜色主题
+        const colors = {
+            blackhole: { r: 30, g: 30, b: 30 },         // 黑色
+            eventHorizon: { r: 147, g: 51, b: 234 },   // 紫色
+            wave: { r: 168, g: 85, b: 247 },           // 亮紫色
+            grid: { r: 100, g: 100, b: 100 },          // 灰色
+            particle: { r: 200, g: 200, b: 255 }       // 淡蓝色
+        };
+        
+        // 网格点类
+        class GridPoint {
+            constructor(x, y) {
+                this.baseX = x;
+                this.baseY = y;
+                this.x = x;
+                this.y = y;
+                this.distortion = 0;
+            }
+            
+            update(waves) {
+                this.distortion = 0;
+                let dx = 0, dy = 0;
+                
+                // 黑洞引力扭曲
+                blackholes.forEach(blackhole => {
+                    const distanceX = this.baseX - blackhole.x;
+                    const distanceY = this.baseY - blackhole.y;
+                    const distance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+                    
+                    if (distance > 20) {
+                        const distortionStrength = (blackhole.mass * 50) / (distance * distance);
+                        dx -= (distanceX / distance) * distortionStrength;
+                        dy -= (distanceY / distance) * distortionStrength;
+                    }
+                });
+                
+                // 引力波影响
+                waves.forEach(wave => {
+                    const distanceX = this.baseX - wave.x;
+                    const distanceY = this.baseY - wave.y;
+                    const distance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+                    
+                    const waveFront = wave.radius;
+                    const waveWidth = 80;
+                    
+                    if (distance < waveFront && distance > waveFront - waveWidth) {
+                        const wavePosition = (distance - (waveFront - waveWidth)) / waveWidth;
+                        const waveIntensity = Math.sin(wavePosition * Math.PI) * wave.intensity * 0.3;
+                        
+                        if (distance > 0) {
+                            const angle = Math.atan2(distanceY, distanceX);
+                            dx += Math.cos(angle + Math.PI / 2) * waveIntensity;
+                            dy += Math.sin(angle + Math.PI / 2) * waveIntensity;
+                        }
+                        
+                        this.distortion = Math.max(this.distortion, waveIntensity);
+                    }
+                });
+                
+                this.x = this.baseX + dx;
+                this.y = this.baseY + dy;
+            }
+            
+            draw() {
+                const alpha = 0.2 + this.distortion * 0.5;
+                const size = 1 + this.distortion * 2;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${colors.grid.r}, ${colors.grid.g}, ${colors.grid.b}, ${alpha})`;
+                ctx.fill();
+            }
+        }
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = Math.random() * 2 + 1;
+                this.alpha = Math.random() * 0.5 + 0.5;
+                this.life = 1;
+            }
+            
+            update() {
+                // 黑洞引力
+                blackholes.forEach(blackhole => {
+                    const dx = blackhole.x - this.x;
+                    const dy = blackhole.y - this.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 10) {
+                        const force = (blackhole.mass * 0.5) / (distance * distance);
+                        this.vx += (dx / distance) * force;
+                        this.vy += (dy / distance) * force;
+                    }
+                });
+                
+                // 引力波影响
+                waves.forEach(wave => {
+                    const dx = this.x - wave.x;
+                    const dy = this.y - wave.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    const waveFront = wave.radius;
+                    const waveWidth = 80;
+                    
+                    if (distance < waveFront && distance > waveFront - waveWidth) {
+                        const wavePosition = (distance - (waveFront - waveWidth)) / waveWidth;
+                        const waveIntensity = Math.sin(wavePosition * Math.PI) * wave.intensity * 0.5;
+                        
+                        if (distance > 0) {
+                            const angle = Math.atan2(dy, dx);
+                            this.vx += Math.cos(angle + Math.PI / 2) * waveIntensity;
+                            this.vy += Math.sin(angle + Math.PI / 2) * waveIntensity;
+                        }
+                    }
+                });
+                
+                // 速度衰减
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 生命衰减
+                this.life -= 0.001;
+                
+                // 边界检查
+                if (this.x < 0 || this.x > width || 
+                    this.y < 0 || this.y > height ||
+                    this.life <= 0) {
+                    this.reset();
+                }
+                
+                // 被黑洞吞噬
+                blackholes.forEach(blackhole => {
+                    const dx = this.x - blackhole.x;
+                    const dy = this.y - blackhole.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < 15) {
+                        this.reset();
+                    }
+                });
+            }
+            
+            draw() {
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const hue = (240 + speed * 20) % 360;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${hue}, 70%, 70%, ${this.alpha * this.life})`;
+                ctx.fill();
+                
+                // 拖尾
+                if (speed > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - this.vx * 3, this.y - this.vy * 3);
+                    ctx.strokeStyle = `hsla(${hue}, 70%, 70%, ${this.alpha * this.life * 0.3})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 引力波类
+        class GravitationalWave {
+            constructor(x, y, intensity) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.intensity = intensity;
+                this.speed = 5;
+                this.alive = true;
+            }
+            
+            update() {
+                this.radius += this.speed;
+                this.intensity *= 0.995;
+                
+                if (this.radius > Math.max(width, height) * 1.5 || this.intensity < 0.1) {
+                    this.alive = false;
+                }
+            }
+            
+            draw() {
+                const alpha = this.intensity * 0.3;
+                
+                // 外圈
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${colors.wave.r}, ${colors.wave.g}, ${colors.wave.b}, ${alpha})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 内圈
+                if (this.radius > 80) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius - 80, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(${colors.wave.r}, ${colors.wave.g}, ${colors.wave.b}, ${alpha * 0.5})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // 绘制黑洞
+        function drawBlackholes() {
+            blackholes.forEach(blackhole => {
+                // 事件视界（发光效果）
+                const gradient = ctx.createRadialGradient(
+                    blackhole.x, blackhole.y, 0,
+                    blackhole.x, blackhole.y, 50
+                );
+                
+                gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+                gradient.addColorStop(0.3, `rgba(${colors.eventHorizon.r}, ${colors.eventHorizon.g}, ${colors.eventHorizon.b}, 0.8)`);
+                gradient.addColorStop(0.6, `rgba(${colors.eventHorizon.r}, ${colors.eventHorizon.g}, ${colors.eventHorizon.b}, 0.3)`);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(blackhole.x, blackhole.y, 50, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 黑洞核心
+                ctx.beginPath();
+                ctx.arc(blackhole.x, blackhole.y, 15, 0, Math.PI * 2);
+                ctx.fillStyle = '#000';
+                ctx.fill();
+                
+                // 爱因斯坦环（吸积盘）
+                ctx.beginPath();
+                ctx.arc(blackhole.x, blackhole.y, 25, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${colors.eventHorizon.r}, ${colors.eventHorizon.g}, ${colors.eventHorizon.b}, 0.5)`;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            });
+        }
+        
+        // 更新黑洞运动
+        function updateBlackholes() {
+            // 双黑洞系统互相吸引
+            if (blackholes.length === 2) {
+                const dx = blackholes[1].x - blackholes[0].x;
+                const dy = blackholes[1].y - blackholes[0].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 30) {
+                    const force = 0.5 / distance;
+                    const ax = (dx / distance) * force;
+                    const ay = (dy / distance) * force;
+                    
+                    blackholes[0].vx += ax;
+                    blackholes[0].vy += ay;
+                    blackholes[1].vx -= ax;
+                    blackholes[1].vy -= ay;
+                }
+                
+                // 应用速度
+                blackholes.forEach(blackhole => {
+                    blackhole.x += blackhole.vx;
+                    blackhole.y += blackhole.vy;
+                    
+                    // 速度衰减
+                    blackhole.vx *= 0.999;
+                    blackhole.vy *= 0.999;
+                });
+                
+                // 定期发射引力波
+                if (Math.random() < config.waveFrequency * 0.001) {
+                    const centerX = (blackholes[0].x + blackholes[1].x) / 2;
+                    const centerY = (blackholes[0].y + blackholes[1].y) / 2;
+                    waves.push(new GravitationalWave(centerX, centerY, config.waveIntensity * 0.5));
+                }
+            }
+        }
+        
+        // 初始化网格
+        function initGrid() {
+            gridPoints = [];
+            
+            const spacing = config.gridDensity;
+            const cols = Math.ceil(width / spacing) + 1;
+            const rows = Math.ceil(height / spacing) + 1;
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const x = col * spacing;
+                    const y = row * spacing;
+                    gridPoints.push(new GridPoint(x, y));
+                }
+            }
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += 0.016;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 更新黑洞
+            updateBlackholes();
+            
+            // 更新和绘制引力波
+            waves = waves.filter(wave => wave.alive);
+            waves.forEach(wave => {
+                wave.update();
+                wave.draw();
+            });
+            
+            // 更新和绘制网格
+            gridPoints.forEach(point => {
+                point.update(waves);
+                point.draw();
+            });
+            
+            // 绘制黑洞
+            drawBlackholes();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 更新信息
+            document.getElementById('blackholeCount').textContent = blackholes.length;
+            document.getElementById('waveCount').textContent = waves.length;
+            
+            // 计算时空扭曲程度
+            let maxDistortion = 0;
+            gridPoints.forEach(point => {
+                maxDistortion = Math.max(maxDistortion, point.distortion);
+            });
+            document.getElementById('spacetimeDistortion').textContent = Math.round(maxDistortion * 100);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击发射引力波
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            waves.push(new GravitationalWave(x, y, config.waveIntensity));
+        });
+        
+        // 鼠标交互2：右键添加黑洞
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (blackholes.length < 4) {
+                blackholes.push({
+                    x: x,
+                    y: y,
+                    mass: 100,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2
+                });
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('waveFrequency').addEventListener('input', (e) => {
+            config.waveFrequency = parseInt(e.target.value);
+            document.getElementById('waveFrequencyValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('waveIntensity').addEventListener('input', (e) => {
+            config.waveIntensity = parseInt(e.target.value);
+            document.getElementById('waveIntensityValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('gridDensity').addEventListener('input', (e) => {
+            config.gridDensity = parseInt(e.target.value);
+            document.getElementById('gridDensityValue').textContent = e.target.value;
+            initGrid();
+        });
+        
+        document.getElementById('particleCount').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleCountValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleCount = newCount;
+        });
+        
+        document.getElementById('mergeBtn').addEventListener('click', () => {
+            // 触发黑洞合并
+            if (blackholes.length === 2) {
+                const dx = blackholes[1].x - blackholes[0].x;
+                const dy = blackholes[1].y - blackholes[0].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 发射强烈引力波
+                const centerX = (blackholes[0].x + blackholes[1].x) / 2;
+                const centerY = (blackholes[0].y + blackholes[1].y) / 2;
+                
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        waves.push(new GravitationalWave(centerX, centerY, config.waveIntensity * 2));
+                    }, i * 200);
+                }
+                
+                // 加速合并
+                blackholes[0].vx = dx * 0.05;
+                blackholes[0].vy = dy * 0.05;
+                blackholes[1].vx = -dx * 0.05;
+                blackholes[1].vy = -dy * 0.05;
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            blackholes = [
+                { x: width * 0.4, y: height / 2, mass: 100, vx: 0.5, vy: 0 },
+                { x: width * 0.6, y: height / 2, mass: 100, vx: -0.5, vy: 0 }
+            ];
+            waves = [];
+            initGrid();
+            initParticles();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initGrid();
+            initParticles();
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleCount = 300;
+            config.gridDensity = 20;
+            document.getElementById('particleCount').value = 300;
+            document.getElementById('particleCountValue').textContent = 300;
+            document.getElementById('gridDensity').value = 20;
+            document.getElementById('gridDensityValue').textContent = 20;
+        }
+        
+        // 初始化并启动
+        initGrid();
+        initParticles();
+        animate(performance.now());
+    </script>
+</body>
+</html>
