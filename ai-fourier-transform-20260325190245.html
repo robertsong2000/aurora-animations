@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>傅里叶变换 - Fourier Transform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #0a0a1a;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 150, 50, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 150, 50, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ff9632;
+            text-shadow: 0 0 10px rgba(255, 150, 50, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 150, 50, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 150, 50, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ff9632;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ff9632 0%, #ff6414 100%);
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 150, 50, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌊 傅里叶变换</h3>
+        <div>频率数量: <span id="frequencyCount">5</span></div>
+        <div>基频: <span id="baseFrequency">1</span> Hz</div>
+        <div>采样点: <span id="sampleCount">0</span></div>
+        <div>模式: <span id="mode">合成</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>频率数量:</label>
+            <input type="range" id="frequencyCount" min="1" max="20" value="5">
+            <span class="value" id="frequencyCountValue">5</span>
+        </div>
+        <div class="control-item">
+            <label>基频:</label>
+            <input type="range" id="baseFrequency" min="1" max="10" value="1">
+            <span class="value" id="baseFrequencyValue">1</span>
+        </div>
+        <div class="control-item">
+            <label>振幅:</label>
+            <input type="range" id="amplitude" min="10" max="100" value="50">
+            <span class="value" id="amplitudeValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>速度:</label>
+            <input type="range" id="speed" min="1" max="20" value="5">
+            <span class="value" id="speedValue">5</span>
+        </div>
+        <button id="toggleModeBtn">切换模式</button>
+        <button id="addWaveBtn">添加波形</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            frequencyCount: 5,
+            baseFrequency: 1,
+            amplitude: 50,
+            speed: 5
+        };
+        
+        // 波形数据
+        let waves = [];
+        
+        // 采样数据
+        let samples = [];
+        const maxSamples = 500;
+        
+        // 时间
+        let time = 0;
+        
+        // 模式：'synthesis' 或 'analysis'
+        let mode = 'synthesis';
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 颜色主题
+        const waveColors = [
+            { r: 255, g: 99, b: 71 },   // 红色
+            { r: 255, g: 165, b: 0 },   // 橙色
+            { r: 255, g: 215, b: 0 },   // 金色
+            { r: 50, g: 205, b: 50 },   // 绿色
+            { r: 0, g: 191, b: 255 },   // 蓝色
+            { r: 138, g: 43, b: 226 },  // 紫色
+            { r: 255, g: 105, b: 180 }, // 粉色
+            { r: 0, g: 255, b: 127 },   // 春绿
+            { r: 255, g: 140, b: 0 },   // 深橙
+            { r: 30, g: 144, b: 255 }   // 道奇蓝
+        ];
+        
+        // 波形类
+        class Wave {
+            constructor(frequency, amplitude, phase = 0) {
+                this.frequency = frequency;
+                this.amplitude = amplitude;
+                this.phase = phase;
+                this.color = waveColors[waves.length % waveColors.length];
+            }
+            
+            getValue(t) {
+                return this.amplitude * Math.sin(2 * Math.PI * this.frequency * t + this.phase);
+            }
+        }
+        
+        // 初始化波形
+        function initWaves() {
+            waves = [];
+            
+            for (let i = 0; i < config.frequencyCount; i++) {
+                const frequency = config.baseFrequency * (i + 1);
+                const amplitude = config.amplitude / (i + 1); // 谐波振幅递减
+                waves.push(new Wave(frequency, amplitude));
+            }
+        }
+        
+        // 计算合成波形
+        function getCompositeValue(t) {
+            let sum = 0;
+            waves.forEach(wave => {
+                sum += wave.getValue(t);
+            });
+            return sum;
+        }
+        
+        // 绘制单个波形
+        function drawWave(wave, yOffset, scale = 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(${wave.color.r}, ${wave.color.g}, ${wave.color.b}, 0.5)`;
+            ctx.lineWidth = 2;
+            
+            const startX = 100;
+            const endX = width - 100;
+            
+            for (let x = startX; x <= endX; x++) {
+                const t = (x - startX) / (endX - startX) * 4; // 4个周期
+                const y = yOffset + wave.getValue(t) * scale;
+                
+                if (x === startX) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+        }
+        
+        // 绘制合成波形
+        function drawCompositeWave(yOffset) {
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 3;
+            
+            const startX = 100;
+            const endX = width - 100;
+            
+            for (let x = startX; x <= endX; x++) {
+                const t = (x - startX) / (endX - startX) * 4 + time;
+                const y = yOffset + getCompositeValue(t);
+                
+                if (x === startX) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+        }
+        
+        // 绘制旋转圆（傅里叶级数可视化）
+        function drawFourierCircles(centerX, centerY) {
+            let x = centerX;
+            let y = centerY;
+            
+            // 绘制每个频率的圆
+            waves.forEach((wave, index) => {
+                const radius = wave.amplitude * 0.5;
+                const angle = 2 * Math.PI * wave.frequency * time + wave.phase;
+                
+                // 绘制圆
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${wave.color.r}, ${wave.color.g}, ${wave.color.b}, 0.3)`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                // 计算下一个中心点
+                const nextX = x + radius * Math.cos(angle);
+                const nextY = y + radius * Math.sin(angle);
+                
+                // 绘制半径线
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(nextX, nextY);
+                ctx.strokeStyle = `rgba(${wave.color.r}, ${wave.color.g}, ${wave.color.b}, 0.6)`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                x = nextX;
+                y = nextY;
+            });
+            
+            // 绘制最终点
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fill();
+            
+            // 采样点
+            samples.push({ x, y });
+            
+            if (samples.length > maxSamples) {
+                samples.shift();
+            }
+            
+            // 绘制采样轨迹
+            ctx.beginPath();
+            samples.forEach((sample, index) => {
+                const alpha = index / samples.length;
+                
+                if (index === 0) {
+                    ctx.moveTo(sample.x, sample.y);
+                } else {
+                    ctx.lineTo(sample.x, sample.y);
+                }
+            });
+            
+            ctx.strokeStyle = 'rgba(255, 150, 50, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        
+        // 绘制频谱（傅里叶变换结果）
+        function drawSpectrum(x, y) {
+            const barWidth = 30;
+            const maxBarHeight = 200;
+            
+            waves.forEach((wave, index) => {
+                const barHeight = wave.amplitude * 2;
+                const bx = x + index * (barWidth + 10);
+                const by = y - barHeight;
+                
+                // 绘制条形
+                ctx.fillStyle = `rgba(${wave.color.r}, ${wave.color.g}, ${wave.color.b}, 0.7)`;
+                ctx.fillRect(bx, by, barWidth, barHeight);
+                
+                // 频率标签
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.font = '12px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${wave.frequency}Hz`, bx + barWidth / 2, y + 20);
+            });
+            
+            // 标签
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.font = '14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('频谱', x + (waves.length * (barWidth + 10)) / 2, y - maxBarHeight - 20);
+        }
+        
+        // 绘制标签
+        function drawLabels() {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.font = '14px Courier New';
+            
+            // 时域标签
+            ctx.textAlign = 'left';
+            ctx.fillText('时域（单个波形）', 100, 80);
+            ctx.fillText('时域（合成波形）', 100, height / 2 - 20);
+            
+            // 圆形标签
+            ctx.fillText('傅里叶级数（旋转圆）', 100, height * 0.65 + 50);
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += config.speed * 0.001;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(10, 10, 26, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制标签
+            drawLabels();
+            
+            // 绘制单个波形
+            const waveSpacing = 80;
+            waves.forEach((wave, index) => {
+                const yOffset = 150 + index * waveSpacing;
+                if (yOffset < height / 2 - 50) {
+                    drawWave(wave, yOffset, 0.5);
+                    
+                    // 波形标签
+                    ctx.fillStyle = `rgba(${wave.color.r}, ${wave.color.g}, ${wave.color.b}, 0.8)`;
+                    ctx.font = '12px Courier New';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(`${wave.frequency.toFixed(1)}Hz`, width - 95, yOffset);
+                }
+            });
+            
+            // 绘制合成波形
+            drawCompositeWave(height / 2 + 100);
+            
+            // 绘制傅里叶圆
+            drawFourierCircles(300, height * 0.75);
+            
+            // 绘制频谱
+            drawSpectrum(100, height - 100);
+            
+            // 更新统计
+            document.getElementById('frequencyCount').textContent = waves.length;
+            document.getElementById('baseFrequency').textContent = config.baseFrequency;
+            document.getElementById('sampleCount').textContent = samples.length;
+            document.getElementById('mode').textContent = mode === 'synthesis' ? '合成' : '分析';
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：点击添加频率
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 根据点击位置添加不同频率
+            const frequency = (mouseX / width) * 10 + 1;
+            const amplitude = (1 - mouseY / height) * config.amplitude;
+            
+            if (waves.length < 20) {
+                waves.push(new Wave(frequency, amplitude));
+            }
+        });
+        
+        // 鼠标交互2：右键移除最后一个波形
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (waves.length > 1) {
+                waves.pop();
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('frequencyCount').addEventListener('input', (e) => {
+            config.frequencyCount = parseInt(e.target.value);
+            document.getElementById('frequencyCountValue').textContent = e.target.value;
+            initWaves();
+        });
+        
+        document.getElementById('baseFrequency').addEventListener('input', (e) => {
+            config.baseFrequency = parseInt(e.target.value);
+            document.getElementById('baseFrequencyValue').textContent = e.target.value;
+            initWaves();
+        });
+        
+        document.getElementById('amplitude').addEventListener('input', (e) => {
+            config.amplitude = parseInt(e.target.value);
+            document.getElementById('amplitudeValue').textContent = e.target.value;
+            initWaves();
+        });
+        
+        document.getElementById('speed').addEventListener('input', (e) => {
+            config.speed = parseInt(e.target.value);
+            document.getElementById('speedValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('toggleModeBtn').addEventListener('click', () => {
+            mode = mode === 'synthesis' ? 'analysis' : 'synthesis';
+        });
+        
+        document.getElementById('addWaveBtn').addEventListener('click', () => {
+            if (waves.length < 20) {
+                const frequency = config.baseFrequency * (waves.length + 1);
+                const amplitude = config.amplitude / (waves.length + 1);
+                waves.push(new Wave(frequency, amplitude));
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            samples = [];
+            time = 0;
+            initWaves();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // 性能优化：移动设备减少频率
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.frequencyCount = 3;
+            document.getElementById('frequencyCount').value = 3;
+            document.getElementById('frequencyCountValue').textContent = 3;
+        }
+        
+        // 初始化并启动
+        initWaves();
+        animate(performance.now());
+    </script>
+</body>
+</html>
