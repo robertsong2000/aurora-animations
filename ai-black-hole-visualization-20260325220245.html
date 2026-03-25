@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黑洞可视化 - Black Hole Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 200, 100, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 200, 100, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #ffc864;
+            text-shadow: 0 0 10px rgba(255, 200, 100, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 200, 100, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 200, 100, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #ffc864;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #ffc864 0%, #ff9632 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 200, 100, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🕳️ 黑洞可视化</h3>
+        <div>粒子数量: <span id="particleCount">0</span></div>
+        <div>黑洞质量: <span id="blackHoleMass">10</span> M☉</div>
+        <div>史瓦西半径: <span id="schwarzschildRadius">30</span> km</div>
+        <div>吸积率: <span id="accretionRate">0</span> M/yr</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>黑洞质量:</label>
+            <input type="range" id="blackHoleMass" min="1" max="100" value="10">
+            <span class="value" id="blackHoleMassValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>吸积盘亮度:</label>
+            <input type="range" id="accretionBrightness" min="10" max="100" value="50">
+            <span class="value" id="accretionBrightnessValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>粒子密度:</label>
+            <input type="range" id="particleDensity" min="100" max="1000" value="500">
+            <span class="value" id="particleDensityValue">500</span>
+        </div>
+        <div class="control-item">
+            <label>引力强度:</label>
+            <input type="range" id="gravityStrength" min="10" max="200" value="100">
+            <span class="value" id="gravityStrengthValue">100</span>
+        </div>
+        <button id="addMatterBtn">添加物质</button>
+        <button id="toggleJetsBtn">切换喷流</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            blackHoleMass: 10,
+            accretionBrightness: 50,
+            particleDensity: 500,
+            gravityStrength: 100
+        };
+        
+        // 黑洞
+        let blackHole = {
+            x: width / 2,
+            y: height / 2,
+            mass: config.blackHoleMass,
+            schwarzschildRadius: 30
+        };
+        
+        // 粒子
+        let particles = [];
+        
+        // 吸积盘
+        let accretionDisk = {
+            innerRadius: 60,
+            outerRadius: 200,
+            rotation: 0
+        };
+        
+        // 喷流
+        let jets = [];
+        let jetsEnabled = true;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 时间
+        let time = 0;
+        
+        // 粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                // 从吸积盘外围生成
+                const angle = Math.random() * Math.PI * 2;
+                const distance = accretionDisk.outerRadius + Math.random() * 200;
+                
+                this.x = blackHole.x + Math.cos(angle) * distance;
+                this.y = blackHole.y + Math.sin(angle) * distance;
+                
+                // 初始速度（切向）
+                const speed = Math.sqrt(config.gravityStrength / distance) * 2;
+                this.vx = Math.cos(angle + Math.PI / 2) * speed;
+                this.vy = Math.sin(angle + Math.PI / 2) * speed;
+                
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.maxLife = Math.random() * 500 + 200;
+                this.age = 0;
+                
+                // 颜色（温度）
+                this.temperature = Math.random() * 0.5 + 0.5;
+            }
+            
+            update() {
+                // 引力
+                const dx = blackHole.x - this.x;
+                const dy = blackHole.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    const force = (config.gravityStrength * blackHole.mass) / (distance * distance);
+                    
+                    this.vx += (dx / distance) * force * 0.01;
+                    this.vy += (dy / distance) * force * 0.01;
+                }
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 更新温度（越近越热）
+                this.temperature = Math.min(1, 1 - (distance - blackHole.schwarzschildRadius) / 300);
+                
+                // 年龄增长
+                this.age++;
+                this.life = 1 - (this.age / this.maxLife);
+                
+                // 被黑洞吞噬
+                if (distance < blackHole.schwarzschildRadius) {
+                    this.reset();
+                }
+                
+                // 生命周期结束
+                if (this.age >= this.maxLife) {
+                    this.reset();
+                }
+                
+                // 边界检查
+                if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                // 根据温度选择颜色
+                const r = Math.floor(255 * this.temperature);
+                const g = Math.floor(150 * this.temperature);
+                const b = Math.floor(50 * (1 - this.temperature));
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                
+                gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${this.life * 0.8})`);
+                gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${this.life * 0.3})`);
+                gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${this.life})`;
+                ctx.fill();
+            }
+        }
+        
+        // 喷流粒子类
+        class JetParticle {
+            constructor(direction) {
+                this.x = blackHole.x;
+                this.y = blackHole.y;
+                this.direction = direction; // 1 或 -1
+                this.vy = direction * (Math.random() * 5 + 5);
+                this.vx = (Math.random() - 0.5) * 2;
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.maxLife = Math.random() * 100 + 50;
+                this.age = 0;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                this.age++;
+                this.life = 1 - (this.age / this.maxLife);
+                
+                if (this.age >= this.maxLife || this.y < 0 || this.y > height) {
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            draw() {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 3
+                );
+                
+                gradient.addColorStop(0, `rgba(100, 150, 255, ${this.life})`);
+                gradient.addColorStop(0.5, `rgba(100, 150, 255, ${this.life * 0.3})`);
+                gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+        
+        // 绘制黑洞
+        function drawBlackHole() {
+            // 事件视界（黑色球体）
+            ctx.beginPath();
+            ctx.arc(blackHole.x, blackHole.y, blackHole.schwarzschildRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+            
+            // 光子球（发光边缘）
+            const gradient = ctx.createRadialGradient(
+                blackHole.x, blackHole.y, blackHole.schwarzschildRadius,
+                blackHole.x, blackHole.y, blackHole.schwarzschildRadius + 20
+            );
+            
+            gradient.addColorStop(0, 'rgba(255, 200, 100, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(255, 150, 50, 0.3)');
+            gradient.addColorStop(1, 'rgba(255, 100, 0, 0)');
+            
+            ctx.beginPath();
+            ctx.arc(blackHole.x, blackHole.y, blackHole.schwarzschildRadius + 20, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+        
+        // 绘制吸积盘
+        function drawAccretionDisk() {
+            accretionDisk.rotation += 0.01;
+            
+            const brightness = config.accretionBrightness / 100;
+            
+            // 多层吸积盘
+            for (let layer = 0; layer < 5; layer++) {
+                const radius = accretionDisk.innerRadius + 
+                    (accretionDisk.outerRadius - accretionDisk.innerRadius) * (layer / 5);
+                
+                ctx.save();
+                ctx.translate(blackHole.x, blackHole.y);
+                ctx.rotate(accretionDisk.rotation + layer * 0.2);
+                ctx.scale(1, 0.3); // 椭圆形
+                
+                // 渐变
+                const gradient = ctx.createRadialGradient(0, 0, radius * 0.8, 0, 0, radius);
+                
+                const alpha = (brightness * (1 - layer * 0.15)) * 0.5;
+                gradient.addColorStop(0, `rgba(255, 255, 200, ${alpha})`);
+                gradient.addColorStop(0.3, `rgba(255, 200, 100, ${alpha * 0.8})`);
+                gradient.addColorStop(0.6, `rgba(255, 150, 50, ${alpha * 0.5})`);
+                gradient.addColorStop(1, `rgba(255, 100, 0, 0)`);
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        // 绘制引力透镜效果
+        function drawGravitationalLensing() {
+            // 简化的透镜效果：扭曲背景星星
+            const starCount = 50;
+            
+            for (let i = 0; i < starCount; i++) {
+                const angle = (i / starCount) * Math.PI * 2;
+                const baseDistance = 250 + Math.sin(time + i) * 50;
+                
+                // 透镜扭曲
+                const bendAngle = angle + Math.sin(angle * 2 + time) * 0.2;
+                const x = blackHole.x + Math.cos(bendAngle) * baseDistance;
+                const y = blackHole.y + Math.sin(bendAngle) * baseDistance;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 1, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.fill();
+            }
+        }
+        
+        // 更新喷流
+        function updateJets() {
+            if (!jetsEnabled) return;
+            
+            // 生成新喷流粒子
+            if (Math.random() < 0.3) {
+                jets.push(new JetParticle(-1)); // 向上
+                jets.push(new JetParticle(1));  // 向下
+            }
+            
+            // 更新和绘制喷流粒子
+            jets = jets.filter(jet => jet.update());
+            jets.forEach(jet => jet.draw());
+        }
+        
+        // 初始化粒子
+        function initParticles() {
+            particles = [];
+            
+            for (let i = 0; i < config.particleDensity; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += 0.016;
+            
+            // 清除画布
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 绘制引力透镜效果
+            drawGravitationalLensing();
+            
+            // 绘制吸积盘
+            drawAccretionDisk();
+            
+            // 更新和绘制粒子
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            // 绘制黑洞
+            drawBlackHole();
+            
+            // 更新喷流
+            updateJets();
+            
+            // 更新信息
+            document.getElementById('particleCount').textContent = particles.length;
+            document.getElementById('blackHoleMass').textContent = blackHole.mass;
+            document.getElementById('schwarzschildRadius').textContent = blackHole.schwarzschildRadius;
+            document.getElementById('accretionRate').textContent = 
+                (config.particleDensity * 0.001).toFixed(2);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：拖动黑洞
+        let isDragging = false;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const dx = mouseX - blackHole.x;
+            const dy = mouseY - blackHole.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < blackHole.schwarzschildRadius + 50) {
+                isDragging = true;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                blackHole.x = e.clientX - rect.left;
+                blackHole.y = e.clientY - rect.top;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // 鼠标交互2：点击添加物质
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 添加一批粒子
+            for (let i = 0; i < 50; i++) {
+                const particle = new Particle();
+                particle.x = x + (Math.random() - 0.5) * 100;
+                particle.y = y + (Math.random() - 0.5) * 100;
+                particles.push(particle);
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('blackHoleMass').addEventListener('input', (e) => {
+            blackHole.mass = parseInt(e.target.value);
+            blackHole.schwarzschildRadius = blackHole.mass * 3;
+            document.getElementById('blackHoleMassValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('accretionBrightness').addEventListener('input', (e) => {
+            config.accretionBrightness = parseInt(e.target.value);
+            document.getElementById('accretionBrightnessValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('particleDensity').addEventListener('input', (e) => {
+            const newCount = parseInt(e.target.value);
+            document.getElementById('particleDensityValue').textContent = newCount;
+            
+            if (newCount > particles.length) {
+                for (let i = particles.length; i < newCount; i++) {
+                    particles.push(new Particle());
+                }
+            } else {
+                particles.length = newCount;
+            }
+            config.particleDensity = newCount;
+        });
+        
+        document.getElementById('gravityStrength').addEventListener('input', (e) => {
+            config.gravityStrength = parseInt(e.target.value);
+            document.getElementById('gravityStrengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('addMatterBtn').addEventListener('click', () => {
+            // 添加大量物质
+            for (let i = 0; i < 100; i++) {
+                particles.push(new Particle());
+            }
+        });
+        
+        document.getElementById('toggleJetsBtn').addEventListener('click', () => {
+            jetsEnabled = !jetsEnabled;
+            if (!jetsEnabled) {
+                jets = [];
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            blackHole.x = width / 2;
+            blackHole.y = height / 2;
+            jets = [];
+            initParticles();
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            blackHole.x = width / 2;
+            blackHole.y = height / 2;
+        });
+        
+        // 性能优化：移动设备减少粒子
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.particleDensity = 300;
+            document.getElementById('particleDensity').value = 300;
+            document.getElementById('particleDensityValue').textContent = 300;
+        }
+        
+        // 初始化并启动
+        initParticles();
+        animate(performance.now());
+    </script>
+</body>
+</html>
