@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声波干涉 - Wave Interference</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(100, 200, 255, 0.9);
+            font-size: 13px;
+            line-height: 1.8;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #info h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #64c8ff;
+            text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(100, 200, 255, 0.9);
+            font-size: 13px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-item {
+            margin: 8px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        input[type="range"] {
+            width: 140px;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        
+        span.value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-left: 10px;
+            color: #64c8ff;
+        }
+        
+        button {
+            margin-top: 10px;
+            margin-right: 10px;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #64c8ff 0%, #0096ff 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(100, 200, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div id="info">
+        <h3>🌊 声波干涉</h3>
+        <div>波源数量: <span id="sourceCount">0</span></div>
+        <div>波长: <span id="wavelength">0</span> px</div>
+        <div>频率: <span id="frequency">0</span> Hz</div>
+        <div>干涉强度: <span id="interference">0</span>%</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-item">
+            <label>波长:</label>
+            <input type="range" id="wavelength" min="20" max="100" value="50">
+            <span class="value" id="wavelengthValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>频率:</label>
+            <input type="range" id="frequency" min="1" max="20" value="10">
+            <span class="value" id="frequencyValue">10</span>
+        </div>
+        <div class="control-item">
+            <label>振幅:</label>
+            <input type="range" id="amplitude" min="1" max="100" value="50">
+            <span class="value" id="amplitudeValue">50</span>
+        </div>
+        <div class="control-item">
+            <label>分辨率:</label>
+            <input type="range" id="resolution" min="2" max="10" value="5">
+            <span class="value" id="resolutionValue">5</span>
+        </div>
+        <button id="addSourceBtn">添加波源</button>
+        <button id="resetBtn">重置</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        
+        // 配置
+        let config = {
+            wavelength: 50,
+            frequency: 10,
+            amplitude: 50,
+            resolution: 5
+        };
+        
+        // 波源
+        let sources = [
+            { x: width * 0.35, y: height / 2, phase: 0 },
+            { x: width * 0.65, y: height / 2, phase: 0 }
+        ];
+        
+        // 时间
+        let time = 0;
+        
+        // FPS 计算
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        
+        // 计算某点的波强度
+        function calculateWaveIntensity(x, y) {
+            let totalIntensity = 0;
+            
+            sources.forEach(source => {
+                const dx = x - source.x;
+                const dy = y - source.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 波的相位
+                const k = (2 * Math.PI) / config.wavelength; // 波数
+                const omega = 2 * Math.PI * config.frequency * 0.1; // 角频率
+                const phase = k * distance - omega * time + source.phase;
+                
+                // 波的振幅随距离衰减
+                const decay = 1 / Math.sqrt(distance + 1);
+                const amplitude = config.amplitude * decay;
+                
+                // 波的强度
+                const intensity = amplitude * Math.sin(phase);
+                
+                totalIntensity += intensity;
+            });
+            
+            return totalIntensity;
+        }
+        
+        // 绘制干涉图案
+        function drawInterferencePattern() {
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            const step = config.resolution;
+            
+            for (let y = 0; y < height; y += step) {
+                for (let x = 0; x < width; x += step) {
+                    const intensity = calculateWaveIntensity(x, y);
+                    
+                    // 归一化到 0-1
+                    const normalized = (intensity / config.amplitude + 1) / 2;
+                    
+                    // 颜色映射（相长干涉：亮蓝色，相消干涉：暗蓝色）
+                    const r = Math.floor(normalized * 100);
+                    const g = Math.floor(normalized * 200);
+                    const b = Math.floor(255);
+                    const a = 255;
+                    
+                    // 填充像素块
+                    for (let dy = 0; dy < step && y + dy < height; dy++) {
+                        for (let dx = 0; dx < step && x + dx < width; dx++) {
+                            const index = ((y + dy) * width + (x + dx)) * 4;
+                            data[index] = r;
+                            data[index + 1] = g;
+                            data[index + 2] = b;
+                            data[index + 3] = a;
+                        }
+                    }
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // 绘制波源
+        function drawSources() {
+            sources.forEach((source, index) => {
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    source.x, source.y, 0,
+                    source.x, source.y, 30
+                );
+                
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                gradient.addColorStop(0.3, 'rgba(100, 200, 255, 0.5)');
+                gradient.addColorStop(1, 'rgba(100, 200, 255, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(source.x, source.y, 30, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心
+                ctx.beginPath();
+                ctx.arc(source.x, source.y, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#64c8ff';
+                ctx.fill();
+                
+                // 标签
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 14px Courier New';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`S${index + 1}`, source.x, source.y);
+            });
+        }
+        
+        // 绘制波纹（从每个波源发射的圆环）
+        function drawWaveRings() {
+            sources.forEach(source => {
+                const maxRadius = Math.max(width, height);
+                const numRings = Math.floor(maxRadius / config.wavelength);
+                
+                for (let i = 0; i < numRings; i++) {
+                    const phase = (i * config.wavelength - time * config.frequency * 10) % maxRadius;
+                    
+                    if (phase > 0 && phase < maxRadius) {
+                        const alpha = 0.3 * (1 - phase / maxRadius);
+                        
+                        ctx.beginPath();
+                        ctx.arc(source.x, source.y, phase, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(100, 200, 255, ${alpha})`;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            });
+        }
+        
+        // 计算干涉强度统计
+        function calculateInterferenceStats() {
+            let maxIntensity = 0;
+            let sampleCount = 0;
+            
+            // 采样中心区域
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const sampleRadius = 100;
+            
+            for (let i = 0; i < 50; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * sampleRadius;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                
+                const intensity = Math.abs(calculateWaveIntensity(x, y));
+                maxIntensity = Math.max(maxIntensity, intensity);
+                sampleCount++;
+            }
+            
+            const avgInterference = (maxIntensity / config.amplitude) * 100;
+            return Math.min(100, avgInterference);
+        }
+        
+        // 动画循环
+        function animate(currentTime) {
+            // FPS 计算
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新时间
+            time += 0.016;
+            
+            // 绘制干涉图案
+            drawInterferencePattern();
+            
+            // 绘制波纹
+            drawWaveRings();
+            
+            // 绘制波源
+            drawSources();
+            
+            // 更新信息
+            document.getElementById('sourceCount').textContent = sources.length;
+            document.getElementById('wavelength').textContent = config.wavelength;
+            document.getElementById('frequency').textContent = config.frequency;
+            
+            // 计算干涉强度（每30帧计算一次）
+            if (frameCount % 30 === 0) {
+                const interference = calculateInterferenceStats();
+                document.getElementById('interference').textContent = Math.round(interference);
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 鼠标交互1：拖动波源
+        let isDragging = false;
+        let draggedSource = null;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            // 检查是否点击了波源
+            sources.forEach((source, index) => {
+                const dx = mouseX - source.x;
+                const dy = mouseY - source.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 30) {
+                    isDragging = true;
+                    draggedSource = index;
+                }
+            });
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging && draggedSource !== null) {
+                const rect = canvas.getBoundingClientRect();
+                sources[draggedSource].x = e.clientX - rect.left;
+                sources[draggedSource].y = e.clientY - rect.top;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            draggedSource = null;
+        });
+        
+        // 鼠标交互2：双击添加波源
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (sources.length < 5) {
+                sources.push({
+                    x: x,
+                    y: y,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+        });
+        
+        // 控制面板事件
+        document.getElementById('wavelength').addEventListener('input', (e) => {
+            config.wavelength = parseInt(e.target.value);
+            document.getElementById('wavelengthValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('frequency').addEventListener('input', (e) => {
+            config.frequency = parseInt(e.target.value);
+            document.getElementById('frequencyValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('amplitude').addEventListener('input', (e) => {
+            config.amplitude = parseInt(e.target.value);
+            document.getElementById('amplitudeValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('resolution').addEventListener('input', (e) => {
+            config.resolution = parseInt(e.target.value);
+            document.getElementById('resolutionValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('addSourceBtn').addEventListener('click', () => {
+            if (sources.length < 5) {
+                sources.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            sources = [
+                { x: width * 0.35, y: height / 2, phase: 0 },
+                { x: width * 0.65, y: height / 2, phase: 0 }
+            ];
+            time = 0;
+        });
+        
+        // 窗口调整
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // 性能优化：移动设备降低分辨率
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            config.resolution = 8;
+            document.getElementById('resolution').value = 8;
+            document.getElementById('resolutionValue').textContent = 8;
+        }
+        
+        // 启动动画
+        animate(performance.now());
+    </script>
+</body>
+</html>
