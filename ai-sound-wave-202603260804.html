@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声波可视化 - Sound Wave Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(255, 107, 107, 0.3);
+            border-color: #ff6b6b;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .mode-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🎵 声波可视化</h1>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标X轴：控制频率</p>
+        <p>• 鼠标Y轴：控制振幅</p>
+        <p>• 点击：切换可视化模式</p>
+        <p>• 滚轮：调整波速</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setMode('wave')" id="btn-wave" class="active">波形</button>
+        <button onclick="setMode('bars')" id="btn-bars">频谱柱</button>
+        <button onclick="setMode('circular')" id="btn-circular">环形</button>
+        <button onclick="setMode('particles')" id="btn-particles">粒子</button>
+        <button onclick="toggleAnimation()">暂停/继续</button>
+    </div>
+
+    <div class="stats">
+        <div>频率: <span id="frequency">440</span> Hz</div>
+        <div>振幅: <span id="amplitude">100</span>%</div>
+        <div>波速: <span id="speed">1.0</span>x</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="mode-indicator">
+        当前模式: <span id="currentMode">波形</span>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 参数
+        let frequency = 440;
+        let amplitude = 100;
+        let speed = 1.0;
+        let phase = 0;
+        let isAnimating = true;
+        let currentMode = 'wave';
+        
+        // 粒子系统
+        let particles = [];
+        const MAX_PARTICLES = 500;
+        
+        // 频谱数据
+        let spectrumBars = 64;
+        let spectrumData = new Array(spectrumBars).fill(0);
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 初始化粒子
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                particles.push(createParticle());
+            }
+            
+            // 初始化频谱
+            for (let i = 0; i < spectrumBars; i++) {
+                spectrumData[i] = Math.random() * 0.5;
+            }
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('click', toggleMode);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 创建粒子
+        function createParticle() {
+            return {
+                x: Math.random() * canvas.width,
+                y: canvas.height / 2,
+                baseY: canvas.height / 2,
+                size: 2 + Math.random() * 3,
+                speed: 0.5 + Math.random() * 1.5,
+                angle: Math.random() * Math.PI * 2,
+                life: 1
+            };
+        }
+
+        // 鼠标移动
+        function mouseMove(e) {
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 频率：20-2000 Hz
+            frequency = 20 + (x / canvas.width) * 1980;
+            
+            // 振幅：0-100%
+            amplitude = 100 - (y / canvas.height) * 100;
+            
+            // 更新显示
+            document.getElementById('frequency').textContent = Math.round(frequency);
+            document.getElementById('amplitude').textContent = Math.round(amplitude);
+        }
+
+        // 切换模式
+        function toggleMode() {
+            const modes = ['wave', 'bars', 'circular', 'particles'];
+            const currentIndex = modes.indexOf(currentMode);
+            currentMode = modes[(currentIndex + 1) % modes.length];
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + currentMode).classList.add('active');
+            
+            // 更新显示
+            const modeNames = {
+                'wave': '波形',
+                'bars': '频谱柱',
+                'circular': '环形',
+                'particles': '粒子'
+            };
+            document.getElementById('currentMode').textContent = modeNames[currentMode];
+        }
+
+        // 设置模式
+        function setMode(mode) {
+            currentMode = mode;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + mode).classList.add('active');
+            
+            // 更新显示
+            const modeNames = {
+                'wave': '波形',
+                'bars': '频谱柱',
+                'circular': '环形',
+                'particles': '粒子'
+            };
+            document.getElementById('currentMode').textContent = modeNames[mode];
+        }
+
+        // 滚轮
+        function wheel(e) {
+            e.preventDefault();
+            speed += e.deltaY > 0 ? -0.1 : 0.1;
+            speed = Math.max(0.1, Math.min(3.0, speed));
+            document.getElementById('speed').textContent = speed.toFixed(1);
+        }
+
+        // 触摸事件
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        // 切换动画
+        function toggleAnimation() {
+            isAnimating = !isAnimating;
+        }
+
+        // 更新频谱数据
+        function updateSpectrum() {
+            for (let i = 0; i < spectrumBars; i++) {
+                // 模拟频谱数据
+                const baseFreq = frequency / (i + 1);
+                const variation = Math.sin(phase * (i + 1) * 0.1) * 0.3;
+                const noise = Math.random() * 0.1;
+                
+                spectrumData[i] = spectrumData[i] * 0.9 + 
+                    (0.5 + variation + noise) * (amplitude / 100) * 0.1;
+            }
+        }
+
+        // 更新粒子
+        function updateParticles() {
+            for (let particle of particles) {
+                // 根据声波更新粒子位置
+                const waveY = Math.sin(particle.x * 0.01 * (frequency / 100) + phase) * 
+                              amplitude * 0.5;
+                particle.y = particle.baseY + waveY;
+                
+                // 移动粒子
+                particle.x += particle.speed * speed;
+                
+                // 边界检测
+                if (particle.x > canvas.width) {
+                    particle.x = 0;
+                }
+            }
+        }
+
+        // 绘制波形
+        function drawWave() {
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            
+            for (let x = 0; x < canvas.width; x++) {
+                const y = canvas.height / 2 + 
+                          Math.sin(x * 0.01 * (frequency / 100) + phase) * 
+                          amplitude * 1.5;
+                
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+            
+            // 绘制第二条波形（相位偏移）
+            ctx.strokeStyle = '#4ecdc4';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let x = 0; x < canvas.width; x++) {
+                const y = canvas.height / 2 + 
+                          Math.sin(x * 0.01 * (frequency / 100) + phase + Math.PI / 4) * 
+                          amplitude * 1.2;
+                
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+        }
+
+        // 绘制频谱柱
+        function drawBars() {
+            const barWidth = canvas.width / spectrumBars;
+            
+            for (let i = 0; i < spectrumBars; i++) {
+                const barHeight = spectrumData[i] * canvas.height * 0.8;
+                const x = i * barWidth;
+                const y = canvas.height - barHeight;
+                
+                // 颜色渐变
+                const hue = (i / spectrumBars) * 360;
+                ctx.fillStyle = `hsla(${hue}, 80%, 60%, 0.8)`;
+                
+                ctx.fillRect(x, y, barWidth - 2, barHeight);
+                
+                // 发光效果
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = `hsla(${hue}, 80%, 60%, 0.5)`;
+                ctx.fillRect(x, y, barWidth - 2, barHeight);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // 绘制环形
+        function drawCircular() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.3;
+            
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i < 360; i++) {
+                const angle = (i * Math.PI) / 180;
+                const waveRadius = radius + 
+                                   Math.sin(angle * (frequency / 50) + phase) * 
+                                   amplitude * 0.8;
+                
+                const x = centerX + Math.cos(angle) * waveRadius;
+                const y = centerY + Math.sin(angle) * waveRadius;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.closePath();
+            ctx.stroke();
+            
+            // 第二层环形
+            ctx.strokeStyle = '#4ecdc4';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            
+            for (let i = 0; i < 360; i++) {
+                const angle = (i * Math.PI) / 180;
+                const waveRadius = radius * 0.6 + 
+                                   Math.sin(angle * (frequency / 30) + phase + Math.PI / 3) * 
+                                   amplitude * 0.5;
+                
+                const x = centerX + Math.cos(angle) * waveRadius;
+                const y = centerY + Math.sin(angle) * waveRadius;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        // 绘制粒子
+        function drawParticles() {
+            for (let particle of particles) {
+                const alpha = 0.5 + Math.sin(phase + particle.x * 0.01) * 0.3;
+                ctx.fillStyle = `rgba(255, 107, 107, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 连线
+            ctx.strokeStyle = 'rgba(78, 205, 196, 0.2)';
+            ctx.lineWidth = 1;
+            
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 50) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景（带拖尾效果）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 根据模式绘制
+            switch (currentMode) {
+                case 'wave':
+                    drawWave();
+                    break;
+                case 'bars':
+                    drawBars();
+                    break;
+                case 'circular':
+                    drawCircular();
+                    break;
+                case 'particles':
+                    drawParticles();
+                    break;
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新
+            if (isAnimating) {
+                phase += 0.05 * speed;
+                updateSpectrum();
+                updateParticles();
+            }
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
