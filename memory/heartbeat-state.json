@@ -1,0 +1,188 @@
+{
+  "lastChecks": {
+    "memory_compression": 1742980465000,
+    "daily_organize": 1742860500000,
+    "geopolitics_monitor": 1742956800000
+  },
+  "lastCheckTime": "2026-03-26T16:14:00+08:00",
+  "memoryStatus": {
+    "total": "59%",
+    "episodic": "81%",
+    "semantic": "12%",
+    "procedural": "5%",
+    "health": "Good",
+    "lastCheck": "2026-03-26T16:11:00+08:00"
+  },
+  "nextScheduledTasks": {
+    "geopolitics_monitor": "2026-03-27T08:00:00+08:00",
+    "daily_organize": "2026-03-26T23:00:00+08:00",
+    "memory_compression": "2026-03-26T13:44:00+08:00"
+  },
+  "completedTasks": {
+    "geopolitics_monitor_2026-03-23": {
+      "status": "success",
+      "time": "2026-03-23T08:00:00+08:00",
+      "report_path": "/home/ubuntu/.openclaw/workspace/data/geopolitics/breaking_news_2026-03-23.md",
+      "feishu_updated": true,
+      "note": "使用 Tavily API 成功获取实时新闻"
+    },
+    "memory_organize_2026-03-24": {
+      "status": "success",
+      "time": "2026-03-24T05:36:00+08:00",
+      "note": "整理完成，2个文件移至legacy待分类"
+    },
+    "memory_organize_2026-03-25": {
+      "status": "success",
+      "time": "2026-03-25T04:35:00+08:00",
+      "note": "整理完成，分类2个文件：INDEX.md -> procedural, energy-field-report -> episodic"
+    },
+    "creative_animation_galaxy_2026-03-24": {
+      "status": "success",
+      "time": "2026-03-24T04:02:00+08:00",
+      "file": "ai-galaxy-202603240402.html",
+      "commit": "15a755b",
+      "push": "failed"
+    },
+    "creative_animation_dna_2026-03-24": {
+      "status": "success",
+      "time": "2026-03-24T05:02:00+08:00",
+      "file": "ai-dna-spiral-202603240502.html",
+      "commit": "e7a8c1b",
+      "push": "success"
+    },
+    "creative_animation_particle_vortex_2026-03-25": {
+      "status": "success",
+      "time": "2026-03-25T04:02:00+08:00",
+      "file": "ai-particle-vortex-20260325040245.html",
+      "commit": "71b6791",
+      "push": "success",
+      "note": "粒子漩涡动画，支持多引力源交互"
+    },
+    "creative_animation_fluid_simulation_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T04:02:00+08:00",
+      "file": "ai-fluid-simulation-202603260402.html",
+      "commit": "5c5ffc2",
+      "push": "success",
+      "note": "流体模拟动画，基于Navier-Stokes方程的真实物理模拟"
+    },
+    "creative_animation_magnetic_field_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T05:02:00+08:00",
+      "file": "ai-magnetic-field-202603260502.html",
+      "commit": "aa16ee5",
+      "push": "success",
+      "note": "磁场线可视化动画，基于库仑定律的真实磁场计算"
+    },
+    "creative_animation_neural_network_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T06:02:00+08:00",
+      "file": "ai-neural-network-202603260602.html",
+      "commit": "173e7e4",
+      "push": "success",
+      "push_time": "2026-03-26T07:36:00+08:00",
+      "note": "神经网络可视化动画，已成功推送"
+    },
+    "creative_animation_game_of_life_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T07:02:00+08:00",
+      "file": "ai-game-of-life-202603260702.html",
+      "commit": "09e9a81",
+      "push": "success",
+      "push_time": "2026-03-26T07:36:00+08:00",
+      "note": "生命游戏动画，已成功推送"
+    },
+    "geopolitics_monitor_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T08:00:00+08:00",
+      "report_path": "/home/ubuntu/.openclaw/workspace/data/geopolitics/daily_briefing_2026-03-26.md",
+      "feishu_updated": false,
+      "feishu_error": "Unknown target format",
+      "note": "每日地缘政治简报已完成，本地保存成功，飞书推送失败"
+    },
+    "creative_animation_sound_wave_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T08:04:00+08:00",
+      "file": "ai-sound-wave-202603260804.html",
+      "commit": "d3675ea",
+      "push": "success",
+      "push_time": "2026-03-26T08:05:00+08:00",
+      "note": "声波可视化动画，4种模式，实时频率振幅控制"
+    },
+    "creative_animation_gravity_field_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T09:02:00+08:00",
+      "file": "ai-gravity-field-202603260902.html",
+      "commit": "ebc8210",
+      "push": "success",
+      "push_time": "2026-03-26T09:03:00+08:00",
+      "note": "重力场模拟动画，真实物理引擎，太阳系预设"
+    },
+    "creative_animation_electromagnetic_wave_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T10:02:00+08:00",
+      "file": "ai-electromagnetic-wave-202603261002.html",
+      "commit": "6a1d49f",
+      "push": "success",
+      "push_time": "2026-03-26T10:03:00+08:00",
+      "note": "电磁波传播动画,3D可视化,麦克斯韦方程组"
+    },
+    "creative_animation_quantum_tunneling_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T11:02:00+08:00",
+      "file": "ai-quantum-tunneling-202603261102.html",
+      "commit": "cc26630",
+      "push": "success",
+      "push_time": "2026-03-26T12:00:00+08:00",
+      "note": "量子隧穿效应动画，已成功推送"
+    },
+    "creative_animation_fractal_tree_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T12:02:00+08:00",
+      "file": "ai-fractal-tree-202603261202.html",
+      "commit": "244a85e",
+      "push": "success",
+      "push_time": "2026-03-26T12:03:00+08:00",
+      "note": "分形树动画，递归算法，3种生长模式"
+    },
+    "creative_animation_chaotic_pendulum_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T13:02:00+08:00",
+      "file": "ai-chaotic-pendulum-202603261302.html",
+      "commit": "4a1a315",
+      "push": "success",
+      "push_time": "2026-03-26T13:03:00+08:00",
+      "note": "混沌摆动画，混沌理论可视化，蝴蝶效应"
+    },
+    "creative_animation_lorenz_attractor_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T14:02:00+08:00",
+      "file": "ai-lorenz-attractor-202603261402.html",
+      "commit": "f111c61",
+      "push": "success",
+      "push_time": "2026-03-26T14:03:00+08:00",
+      "note": "洛伦兹吸引子动画，混沌理论经典可视化，3D轨迹旋转"
+    },
+    "creative_animation_mandelbrot_set_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T15:02:00+08:00",
+      "file": "ai-mandelbrot-set-202603261502.html",
+      "commit": "0ae6462",
+      "push": "success",
+      "push_time": "2026-03-26T15:10:00+08:00",
+      "note": "曼德勃罗集动画，分形几何经典可视化，已成功推送"
+    },
+    "creative_animation_julia_set_2026-03-26": {
+      "status": "success",
+      "time": "2026-03-26T16:02:00+08:00",
+      "file": "ai-julia-set-202603261602.html",
+      "commit": "107efe1",
+      "push": "success",
+      "push_time": "2026-03-26T16:48:00+08:00",
+      "note": "朱利亚集动画，已成功推送"
+    }
+  },
+  "pendingTasks": {}
+}
+  "pendingTasks": {}
+}
