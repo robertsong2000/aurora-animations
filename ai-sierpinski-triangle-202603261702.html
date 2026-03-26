@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>谢尔宾斯基三角形 - Sierpinski Triangle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 300px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #e74c3c, #f39c12, #2ecc71);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(231, 76, 60, 0.3);
+            border-color: #e74c3c;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🔺 谢尔宾斯基三角形</h1>
+        <p><strong>Sierpinski Triangle</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 滚轮：调整递归深度</p>
+        <p>• 点击：随机颜色</p>
+        <p>• 拖动：旋转角度</p>
+        <p>• 观察无限自相似性</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setColorMode('gradient')" id="btn-gradient" class="active">渐变</button>
+        <button onclick="setColorMode('random')">随机</button>
+        <button onclick="setColorMode('outline')">轮廓</button>
+        <button onclick="toggleAnimation()">动画开关</button>
+        <button onclick="reset()">重置</button>
+    </div>
+
+    <div class="stats">
+        <div>递归深度: <span id="depth">6</span></div>
+        <div>三角形数: <span id="triangles">0</span></div>
+        <div>旋转角度: <span id="rotation">0</span>°</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <strong>分形原理：</strong>
+        </div>
+        <div class="legend-item">递归移除中心三角形</div>
+        <div class="legend-item">自相似：局部与整体相同</div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 参数
+        let maxDepth = 6;
+        let colorMode = 'gradient';
+        let rotation = 0;
+        let isAnimating = false;
+        let animationPhase = 0;
+        
+        // 统计
+        let triangleCount = 0;
+        
+        // 拖动状态
+        let isDragging = false;
+        let lastMouseX = 0;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', mouseDown);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('mouseup', mouseUp);
+            canvas.addEventListener('click', click);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            render();
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render();
+        }
+
+        // 绘制谢尔宾斯基三角形
+        function drawSierpinski(x1, y1, x2, y2, x3, y3, depth) {
+            if (depth === 0) {
+                triangleCount++;
+                
+                // 颜色设置
+                if (colorMode === 'gradient') {
+                    const hue = (depth / maxDepth * 360 + animationPhase) % 360;
+                    ctx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+                } else if (colorMode === 'random') {
+                    const hue = Math.random() * 360;
+                    ctx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+                } else if (colorMode === 'outline') {
+                    ctx.fillStyle = 'transparent';
+                    ctx.strokeStyle = `hsl(${depth / maxDepth * 360}, 80%, 60%)`;
+                    ctx.lineWidth = 1;
+                }
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.lineTo(x3, y3);
+                ctx.closePath();
+                
+                if (colorMode === 'outline') {
+                    ctx.stroke();
+                } else {
+                    ctx.fill();
+                }
+                
+                return;
+            }
+            
+            // 计算中点
+            const mid1X = (x1 + x2) / 2;
+            const mid1Y = (y1 + y2) / 2;
+            const mid2X = (x2 + x3) / 2;
+            const mid2Y = (y2 + y3) / 2;
+            const mid3X = (x3 + x1) / 2;
+            const mid3Y = (y3 + y1) / 2;
+            
+            // 递归绘制三个角落的三角形
+            drawSierpinski(x1, y1, mid1X, mid1Y, mid3X, mid3Y, depth - 1);
+            drawSierpinski(mid1X, mid1Y, x2, y2, mid2X, mid2Y, depth - 1);
+            drawSierpinski(mid3X, mid3Y, mid2X, mid2Y, x3, y3, depth - 1);
+        }
+
+        // 渲染
+        function render() {
+            // 清除背景
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 重置计数
+            triangleCount = 0;
+            
+            // 计算初始三角形顶点
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const size = Math.min(canvas.width, canvas.height) * 0.8;
+            
+            // 旋转角度
+            const angle = rotation * Math.PI / 180;
+            
+            // 等边三角形顶点
+            const x1 = centerX + Math.cos(angle - Math.PI / 2) * size / 2;
+            const y1 = centerY + Math.sin(angle - Math.PI / 2) * size / 2;
+            const x2 = centerX + Math.cos(angle + Math.PI / 6) * size / 2;
+            const y2 = centerY + Math.sin(angle + Math.PI / 6) * size / 2;
+            const x3 = centerX + Math.cos(angle + 5 * Math.PI / 6) * size / 2;
+            const y3 = centerY + Math.sin(angle + 5 * Math.PI / 6) * size / 2;
+            
+            // 绘制谢尔宾斯基三角形
+            drawSierpinski(x1, y1, x2, y2, x3, y3, maxDepth);
+            
+            // 更新统计
+            document.getElementById('depth').textContent = maxDepth;
+            document.getElementById('triangles').textContent = triangleCount;
+            document.getElementById('rotation').textContent = Math.round(rotation);
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 动画效果
+            if (isAnimating) {
+                animationPhase += 2;
+                rotation += 0.5;
+                render();
+            }
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseDown(e) {
+            isDragging = true;
+            lastMouseX = e.clientX;
+        }
+
+        function mouseMove(e) {
+            if (!isDragging) return;
+            
+            const deltaX = e.clientX - lastMouseX;
+            rotation += deltaX * 0.5;
+            lastMouseX = e.clientX;
+            
+            render();
+        }
+
+        function mouseUp() {
+            isDragging = false;
+        }
+
+        function click() {
+            if (colorMode === 'random') {
+                render();
+            }
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            maxDepth += e.deltaY > 0 ? -1 : 1;
+            maxDepth = Math.max(1, Math.min(10, maxDepth));
+            render();
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseDown({ clientX: touch.clientX });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX });
+        }
+
+        function touchEnd() {
+            mouseUp();
+        }
+
+        // 设置颜色模式
+        function setColorMode(mode) {
+            colorMode = mode;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            if (mode === 'gradient') {
+                document.getElementById('btn-gradient').classList.add('active');
+            } else if (mode === 'random') {
+                document.getElementById('btn-random').classList.add('active');
+            } else if (mode === 'outline') {
+                document.getElementById('btn-outline').classList.add('active');
+            }
+            
+            render();
+        }
+
+        // 切换动画
+        function toggleAnimation() {
+            isAnimating = !isAnimating;
+        }
+
+        // 重置
+        function reset() {
+            maxDepth = 6;
+            rotation = 0;
+            isAnimating = false;
+            animationPhase = 0;
+            colorMode = 'gradient';
+            
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-gradient').classList.add('active');
+            
+            render();
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
