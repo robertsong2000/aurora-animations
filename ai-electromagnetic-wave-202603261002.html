@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电磁波传播 - Electromagnetic Wave Propagation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #e74c3c, #3498db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(52, 152, 219, 0.3);
+            border-color: #3498db;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>⚡ 电磁波传播</h1>
+        <p><strong>Electromagnetic Wave</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标X轴：调整频率</p>
+        <p>• 鼠标Y轴：调整振幅</p>
+        <p>• 滚轮：调整传播速度</p>
+        <p>• 点击：切换显示模式</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setView('3d')" id="btn-3d" class="active">3D视图</button>
+        <button onclick="setView('2d')" id="btn-2d">2D侧视图</button>
+        <button onclick="setView('field')" id="btn-field">场强图</button>
+        <button onclick="togglePause()">暂停/继续</button>
+        <button onclick="reset()">重置</button>
+    </div>
+
+    <div class="stats">
+        <div>频率: <span id="frequency">5.0</span> Hz</div>
+        <div>波长: <span id="wavelength">60</span> px</div>
+        <div>振幅: <span id="amplitude">100</span>%</div>
+        <div>速度: <span id="speed">1.0</span>x</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #e74c3c;"></div>
+            <span>电场（E）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #3498db;"></div>
+            <span>磁场（B）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #f39c12;"></div>
+            <span>传播方向（k）</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 参数
+        let frequency = 5.0;
+        let amplitude = 100;
+        let speed = 1.0;
+        let phase = 0;
+        let isPaused = false;
+        let currentView = '3d';
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('click', toggleView);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 鼠标移动
+        function mouseMove(e) {
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 频率：1-10 Hz
+            frequency = 1 + (x / canvas.width) * 9;
+            
+            // 振幅：20-100%
+            amplitude = 100 - (y / canvas.height) * 80;
+            
+            // 更新显示
+            document.getElementById('frequency').textContent = frequency.toFixed(1);
+            document.getElementById('wavelength').textContent = Math.round(300 / frequency);
+            document.getElementById('amplitude').textContent = Math.round(amplitude);
+        }
+
+        // 切换视图
+        function toggleView() {
+            const views = ['3d', '2d', 'field'];
+            const currentIndex = views.indexOf(currentView);
+            currentView = views[(currentIndex + 1) % views.length];
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + currentView).classList.add('active');
+        }
+
+        // 设置视图
+        function setView(view) {
+            currentView = view;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + view).classList.add('active');
+        }
+
+        // 滚轮
+        function wheel(e) {
+            e.preventDefault();
+            speed += e.deltaY > 0 ? -0.1 : 0.1;
+            speed = Math.max(0.1, Math.min(3.0, speed));
+            document.getElementById('speed').textContent = speed.toFixed(1);
+        }
+
+        // 触摸事件
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        // 切换暂停
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+
+        // 重置
+        function reset() {
+            frequency = 5.0;
+            amplitude = 100;
+            speed = 1.0;
+            phase = 0;
+            
+            document.getElementById('frequency').textContent = '5.0';
+            document.getElementById('wavelength').textContent = '60';
+            document.getElementById('amplitude').textContent = '100';
+            document.getElementById('speed').textContent = '1.0';
+        }
+
+        // 绘制3D视图
+        function draw3D() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const length = Math.min(canvas.width, canvas.height) * 0.8;
+            const waveAmplitude = length * 0.15 * (amplitude / 100);
+            
+            // 传播方向轴
+            ctx.strokeStyle = '#f39c12';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(centerX - length / 2, centerY);
+            ctx.lineTo(centerX + length / 2, centerY);
+            ctx.stroke();
+            
+            // 箭头
+            ctx.beginPath();
+            ctx.moveTo(centerX + length / 2, centerY);
+            ctx.lineTo(centerX + length / 2 - 15, centerY - 8);
+            ctx.moveTo(centerX + length / 2, centerY);
+            ctx.lineTo(centerX + length / 2 - 15, centerY + 8);
+            ctx.stroke();
+            
+            // 标签
+            ctx.fillStyle = '#f39c12';
+            ctx.font = '16px Arial';
+            ctx.fillText('k', centerX + length / 2 + 5, centerY + 5);
+            
+            // 电场波（垂直方向）
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i <= length; i += 2) {
+                const x = centerX - length / 2 + i;
+                const wave = Math.sin((i / length) * Math.PI * 2 * frequency + phase) * waveAmplitude;
+                const y = centerY - wave;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+            
+            // 电场标签
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillText('E', centerX - length / 2 - 20, centerY - waveAmplitude);
+            
+            // 磁场波（水平方向，3D效果）
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i <= length; i += 2) {
+                const x = centerX - length / 2 + i;
+                const wave = Math.sin((i / length) * Math.PI * 2 * frequency + phase) * waveAmplitude;
+                const z = wave * 0.7; // 3D透视效果
+                
+                if (i === 0) {
+                    ctx.moveTo(x + z, centerY + z);
+                } else {
+                    ctx.lineTo(x + z, centerY + z);
+                }
+            }
+            
+            ctx.stroke();
+            
+            // 磁场标签
+            ctx.fillStyle = '#3498db';
+            ctx.fillText('B', centerX - length / 2 - 20, centerY + waveAmplitude * 0.7);
+            
+            // 绘制场矢量（采样点）
+            for (let i = 0; i < length; i += length / 10) {
+                const x = centerX - length / 2 + i;
+                const wave = Math.sin((i / length) * Math.PI * 2 * frequency + phase) * waveAmplitude;
+                
+                // 电场矢量
+                ctx.strokeStyle = '#e74c3c80';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, centerY);
+                ctx.lineTo(x, centerY - wave);
+                ctx.stroke();
+                
+                // 磁场矢量
+                const z = wave * 0.7;
+                ctx.strokeStyle = '#3498db80';
+                ctx.beginPath();
+                ctx.moveTo(x, centerY);
+                ctx.lineTo(x + z, centerY + z);
+                ctx.stroke();
+            }
+        }
+
+        // 绘制2D侧视图
+        function draw2D() {
+            const centerY = canvas.height / 2;
+            const length = canvas.width * 0.9;
+            const startX = canvas.width * 0.05;
+            const waveAmplitude = canvas.height * 0.2 * (amplitude / 100);
+            
+            // 背景网格
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            
+            for (let y = 0; y < canvas.height; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            for (let x = 0; x < canvas.width; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            
+            // 中心线
+            ctx.strokeStyle = '#ffffff40';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(startX, centerY);
+            ctx.lineTo(startX + length, centerY);
+            ctx.stroke();
+            
+            // 电场波
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            
+            for (let i = 0; i <= length; i += 2) {
+                const x = startX + i;
+                const wave = Math.sin((i / length) * Math.PI * 2 * frequency + phase) * waveAmplitude;
+                const y = centerY - wave;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+            
+            // 磁场波
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            
+            for (let i = 0; i <= length; i += 2) {
+                const x = startX + i;
+                const wave = Math.sin((i / length) * Math.PI * 2 * frequency + phase + Math.PI / 2) * waveAmplitude;
+                const y = centerY - wave;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.stroke();
+            
+            // 波峰波谷标记
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '14px Arial';
+            ctx.fillText('电场 E', startX, centerY - waveAmplitude - 20);
+            ctx.fillText('磁场 B', startX, centerY + waveAmplitude + 30);
+        }
+
+        // 绘制场强图
+        function drawField() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const length = Math.min(canvas.width, canvas.height) * 0.8;
+            const waveAmplitude = length * 0.15 * (amplitude / 100);
+            
+            // 场强热图
+            const resolution = 5;
+            
+            for (let x = -length / 2; x < length / 2; x += resolution) {
+                for (let y = -length / 2; y < length / 2; y += resolution) {
+                    const distance = Math.sqrt(x * x + y * y);
+                    const wave = Math.sin((distance / length) * Math.PI * 2 * frequency + phase);
+                    
+                    const intensity = Math.abs(wave);
+                    const hue = wave > 0 ? 0 : 200;
+                    const alpha = intensity * 0.8;
+                    
+                    ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+                    ctx.fillRect(
+                        centerX + x - resolution / 2,
+                        centerY + y - resolution / 2,
+                        resolution,
+                        resolution
+                    );
+                }
+            }
+            
+            // 圆形波纹
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            
+            for (let r = 0; r < length / 2; r += length / (frequency * 4)) {
+                const wave = Math.sin((r / length) * Math.PI * 2 * frequency + phase);
+                
+                if (wave > 0.8) {
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 根据视图绘制
+            switch (currentView) {
+                case '3d':
+                    draw3D();
+                    break;
+                case '2d':
+                    draw2D();
+                    break;
+                case 'field':
+                    drawField();
+                    break;
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新相位
+            if (!isPaused) {
+                phase += 0.05 * speed;
+            }
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
