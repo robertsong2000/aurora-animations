@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重力场模拟 - Gravity Field Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ffd700, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🌍 重力场模拟</h1>
+        <p><strong>交互方式：</strong></p>
+        <p>• 点击：创建新天体</p>
+        <p>• 拖动：给天体初始速度</p>
+        <p>• 右键：删除天体</p>
+        <p>• 滚轮：调整时间速度</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="resetSimulation()">重置</button>
+        <button onclick="toggleTrails()">轨迹开关</button>
+        <button onclick="toggleVectors()">速度矢量</button>
+        <button onclick="addRandomBodies()">随机天体</button>
+        <button onclick="createSolarSystem()">太阳系</button>
+    </div>
+
+    <div class="stats">
+        <div>天体数: <span id="bodies">0</span></div>
+        <div>时间速度: <span id="timeScale">1.0</span>x</div>
+        <div>总质量: <span id="mass">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffd700;"></div>
+            <span>恒星（大质量）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4a90e2;"></div>
+            <span>行星（中质量）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #8e44ad;"></div>
+            <span>小天体（小质量）</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 物理常量
+        const G = 6.674e-11; // 万有引力常数
+        const SCALE = 1e9; // 距离缩放
+        const TIME_SCALE = 86400; // 时间缩放（1秒=1天）
+        
+        // 天体数组
+        let bodies = [];
+        
+        // 状态
+        let showTrails = true;
+        let showVectors = false;
+        let timeScale = 1.0;
+        let isDragging = false;
+        let dragStart = null;
+        let dragBody = null;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 创建初始太阳系
+            createSolarSystem();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', mouseDown);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('mouseup', mouseUp);
+            canvas.addEventListener('contextmenu', rightClick);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 创建天体
+        function createBody(x, y, vx, vy, mass, type = 'planet') {
+            const radius = Math.pow(mass, 1/3) * 1e6;
+            
+            let color;
+            if (type === 'star') {
+                color = '#ffd700';
+            } else if (type === 'planet') {
+                color = '#4a90e2';
+            } else {
+                color = '#8e44ad';
+            }
+            
+            return {
+                x: x,
+                y: y,
+                vx: vx,
+                vy: vy,
+                mass: mass,
+                radius: radius,
+                type: type,
+                color: color,
+                trail: []
+            };
+        }
+
+        // 创建太阳系
+        function createSolarSystem() {
+            bodies = [];
+            
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // 太阳
+            bodies.push(createBody(centerX, centerY, 0, 0, 1.989e30, 'star'));
+            
+            // 水星
+            bodies.push(createBody(
+                centerX + 57.9e9 / SCALE,
+                centerY,
+                0,
+                47870,
+                3.3e23,
+                'asteroid'
+            ));
+            
+            // 金星
+            bodies.push(createBody(
+                centerX + 108.2e9 / SCALE,
+                centerY,
+                0,
+                35020,
+                4.87e24,
+                'planet'
+            ));
+            
+            // 地球
+            bodies.push(createBody(
+                centerX + 149.6e9 / SCALE,
+                centerY,
+                0,
+                29780,
+                5.97e24,
+                'planet'
+            ));
+            
+            // 火星
+            bodies.push(createBody(
+                centerX + 227.9e9 / SCALE,
+                centerY,
+                0,
+                24130,
+                6.42e23,
+                'asteroid'
+            ));
+            
+            // 木星
+            bodies.push(createBody(
+                centerX + 778.5e9 / SCALE,
+                centerY,
+                0,
+                13070,
+                1.898e27,
+                'planet'
+            ));
+        }
+
+        // 添加随机天体
+        function addRandomBodies() {
+            const numBodies = 5 + Math.floor(Math.random() * 10);
+            
+            for (let i = 0; i < numBodies; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const vx = (Math.random() - 0.5) * 20000;
+                const vy = (Math.random() - 0.5) * 20000;
+                const mass = Math.pow(10, 23 + Math.random() * 5);
+                const type = mass > 1e27 ? 'star' : mass > 1e25 ? 'planet' : 'asteroid';
+                
+                bodies.push(createBody(x, y, vx, vy, mass, type));
+            }
+        }
+
+        // 计算引力
+        function calculateGravity(body1, body2) {
+            const dx = body2.x - body1.x;
+            const dy = body2.y - body1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) * SCALE;
+            
+            if (dist < 1e9) return { fx: 0, fy: 0 }; // 避免过近距离
+            
+            const force = G * body1.mass * body2.mass / (dist * dist);
+            const fx = force * dx / dist;
+            const fy = force * dy / dist;
+            
+            return { fx, fy };
+        }
+
+        // 更新物理
+        function updatePhysics(dt) {
+            // 计算所有天体的加速度
+            for (let i = 0; i < bodies.length; i++) {
+                let ax = 0, ay = 0;
+                
+                for (let j = 0; j < bodies.length; j++) {
+                    if (i === j) continue;
+                    
+                    const gravity = calculateGravity(bodies[i], bodies[j]);
+                    ax += gravity.fx / bodies[i].mass;
+                    ay += gravity.fy / bodies[i].mass;
+                }
+                
+                // 更新速度
+                bodies[i].vx += ax * dt;
+                bodies[i].vy += ay * dt;
+            }
+            
+            // 更新位置
+            for (let body of bodies) {
+                body.x += body.vx * dt / SCALE;
+                body.y += body.vy * dt / SCALE;
+                
+                // 添加轨迹点
+                if (showTrails) {
+                    body.trail.push({ x: body.x, y: body.y });
+                    if (body.trail.length > 500) {
+                        body.trail.shift();
+                    }
+                }
+            }
+            
+            // 移除出界天体
+            bodies = bodies.filter(body => 
+                body.x > -100 && body.x < canvas.width + 100 &&
+                body.y > -100 && body.y < canvas.height + 100
+            );
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制轨迹
+            if (showTrails) {
+                for (let body of bodies) {
+                    if (body.trail.length < 2) continue;
+                    
+                    ctx.strokeStyle = body.color + '40';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(body.trail[0].x, body.trail[0].y);
+                    
+                    for (let i = 1; i < body.trail.length; i++) {
+                        ctx.lineTo(body.trail[i].x, body.trail[i].y);
+                    }
+                    
+                    ctx.stroke();
+                }
+            }
+            
+            // 绘制速度矢量
+            if (showVectors) {
+                ctx.strokeStyle = '#ff6b6b';
+                ctx.lineWidth = 2;
+                
+                for (let body of bodies) {
+                    const scale = 0.001;
+                    ctx.beginPath();
+                    ctx.moveTo(body.x, body.y);
+                    ctx.lineTo(body.x + body.vx * scale, body.y + body.vy * scale);
+                    ctx.stroke();
+                    
+                    // 箭头
+                    const angle = Math.atan2(body.vy, body.vx);
+                    const arrowSize = 8;
+                    ctx.beginPath();
+                    ctx.moveTo(
+                        body.x + body.vx * scale,
+                        body.y + body.vy * scale
+                    );
+                    ctx.lineTo(
+                        body.x + body.vx * scale - arrowSize * Math.cos(angle - Math.PI / 6),
+                        body.y + body.vy * scale - arrowSize * Math.sin(angle - Math.PI / 6)
+                    );
+                    ctx.moveTo(
+                        body.x + body.vx * scale,
+                        body.y + body.vy * scale
+                    );
+                    ctx.lineTo(
+                        body.x + body.vx * scale - arrowSize * Math.cos(angle + Math.PI / 6),
+                        body.y + body.vy * scale - arrowSize * Math.sin(angle + Math.PI / 6)
+                    );
+                    ctx.stroke();
+                }
+            }
+            
+            // 绘制天体
+            for (let body of bodies) {
+                // 光晕效果
+                const gradient = ctx.createRadialGradient(
+                    body.x, body.y, 0,
+                    body.x, body.y, body.radius * 3
+                );
+                gradient.addColorStop(0, body.color);
+                gradient.addColorStop(0.5, body.color + '40');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(body.x, body.y, body.radius * 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 天体主体
+                ctx.fillStyle = body.color;
+                ctx.beginPath();
+                ctx.arc(body.x, body.y, body.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 发光效果（恒星）
+                if (body.type === 'star') {
+                    ctx.shadowBlur = 30;
+                    ctx.shadowColor = body.color;
+                    ctx.beginPath();
+                    ctx.arc(body.x, body.y, body.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+            }
+            
+            // 绘制拖动线
+            if (isDragging && dragStart && dragBody) {
+                ctx.strokeStyle = '#ffffff80';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(dragBody.x, dragBody.y);
+                ctx.lineTo(dragStart.x, dragStart.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新物理
+            const dt = TIME_SCALE * timeScale / 60;
+            updatePhysics(dt);
+            
+            // 更新统计
+            document.getElementById('bodies').textContent = bodies.length;
+            document.getElementById('timeScale').textContent = timeScale.toFixed(1);
+            const totalMass = bodies.reduce((sum, body) => sum + body.mass, 0);
+            document.getElementById('mass').textContent = (totalMass / 1e30).toFixed(2) + 'e30 kg';
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseDown(e) {
+            if (e.button === 0) { // 左键
+                const x = e.clientX;
+                const y = e.clientY;
+                
+                // 检查是否点击了天体
+                for (let body of bodies) {
+                    const dist = Math.sqrt((x - body.x) ** 2 + (y - body.y) ** 2);
+                    if (dist < body.radius * 3) {
+                        isDragging = true;
+                        dragBody = body;
+                        dragStart = { x, y };
+                        return;
+                    }
+                }
+                
+                // 创建新天体
+                const mass = Math.pow(10, 24 + Math.random() * 3);
+                const type = mass > 1e27 ? 'star' : mass > 1e25 ? 'planet' : 'asteroid';
+                const newBody = createBody(x, y, 0, 0, mass, type);
+                bodies.push(newBody);
+                
+                isDragging = true;
+                dragBody = newBody;
+                dragStart = { x, y };
+            }
+        }
+
+        function mouseMove(e) {
+            if (isDragging && dragStart) {
+                dragStart = { x: e.clientX, y: e.clientY };
+            }
+        }
+
+        function mouseUp(e) {
+            if (isDragging && dragBody && dragStart) {
+                // 计算初始速度
+                const dx = dragBody.x - dragStart.x;
+                const dy = dragBody.y - dragStart.y;
+                dragBody.vx = -dx * 100;
+                dragBody.vy = -dy * 100;
+            }
+            
+            isDragging = false;
+            dragBody = null;
+            dragStart = null;
+        }
+
+        function rightClick(e) {
+            e.preventDefault();
+            
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 删除天体
+            for (let i = bodies.length - 1; i >= 0; i--) {
+                const dist = Math.sqrt((x - bodies[i].x) ** 2 + (y - bodies[i].y) ** 2);
+                if (dist < bodies[i].radius * 3) {
+                    bodies.splice(i, 1);
+                    return;
+                }
+            }
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            timeScale += e.deltaY > 0 ? -0.1 : 0.1;
+            timeScale = Math.max(0.1, Math.min(5.0, timeScale));
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseDown({ button: 0, clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchEnd(e) {
+            mouseUp({});
+        }
+
+        // 控制函数
+        function resetSimulation() {
+            createSolarSystem();
+        }
+
+        function toggleTrails() {
+            showTrails = !showTrails;
+            if (!showTrails) {
+                for (let body of bodies) {
+                    body.trail = [];
+                }
+            }
+        }
+
+        function toggleVectors() {
+            showVectors = !showVectors;
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
