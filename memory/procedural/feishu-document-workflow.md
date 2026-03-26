@@ -1,5 +1,32 @@
 # 飞书文档工作流
 
+## ⚠️ 重要教训（2026-03-23）
+
+**问题**：`feishu_doc action=create` 创建的文档是空的！
+
+**根本原因**：
+- ❌ `create` 只创建空白文档
+- ❌ `content` 参数在 `create` 中无效
+- ✅ 必须在 `create` 后立即调用 `write`
+
+**正确流程**：
+```bash
+# 1. 创建文档
+feishu_doc action=create title="标题"
+
+# 2. 写入内容（必须！）
+feishu_doc action=write doc_token=XXX content="内容"
+
+# 3. 验证内容（必须！）
+feishu_doc action=read doc_token=XXX
+```
+
+**验证标准**：
+- ✅ `block_count > 1`（至少有内容块）
+- ✅ `read` 返回的内容不为空
+
+---
+
 ## 📝 文档创建流程
 
 ### ⚠️ 重要：必须三步走

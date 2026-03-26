@@ -1,152 +1,186 @@
 #!/usr/bin/env python3
 """
-Tavily 搜索工具 - 实时新闻搜索
+Tavily 实时搜索脚本
+使用 Tavily API 搜索实时新闻
 """
 
 import json
 import os
 import sys
 from typing import Dict, List, Optional
-
-# 添加到路径
-sys.path.insert(0, os.path.expanduser("~/.openclaw/workspace"))
-
-try:
-    from tavily import TavilyClient
-except ImportError:
-    print("❌ tavily-python 未安装")
-    print("运行: pip3 install tavily-python")
-    sys.exit(1)
-
+import urllib.request
+import urllib.error
 
 class TavilySearch:
     """Tavily 搜索客户端"""
     
-    def __init__(self, config_path: str = None):
-        """初始化"""
-        if config_path is None:
-            config_path = os.path.expanduser("~/.openclaw/workspace/config/search_config.json")
-        
-        self.config = self._load_config(config_path)
-        self.api_key = self.config.get("providers", {}).get("tavily", {}).get("api_key")
-        
-        if not self.api_key:
-            raise ValueError("❌ 未找到 Tavily API Key")
-        
-        self.client = TavilyClient(api_key=self.api_key)
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or self._load_api_key()
+        self.base_url = "https://api.tavily.com"
     
-    def _load_config(self, config_path: str) -> Dict:
-        """加载配置"""
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"❌ 配置文件不存在: {config_path}")
+    def _load_api_key(self) -> str:
+        """从配置文件加载 API Key"""
+        config_file = os.path.expanduser("~/.openclaw/workspace/config/search_config.json")
         
-        with open(config_path, 'r') as f:
-            return json.load(f)
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get("providers", {}).get("tavily", {}).get("api_key", "")
+        
+        raise ValueError("Tavily API Key 未配置")
     
-    def search(self, query: str, max_results: int = 10, search_depth: str = "advanced") -> Dict:
-        """执行搜索"""
-        print(f"🔍 搜索: {query}")
-        print(f"  - 最大结果: {max_results}")
-        print(f"  - 搜索深度: {search_depth}")
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        search_depth: str = "advanced",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        include_answer: bool = True,
+        include_raw_content: bool = False,
+        include_images: bool = False,
+    ) -> Dict:
+        """
+        执行搜索
+        
+        Args:
+            query: 搜索关键词
+            max_results: 最大结果数（默认10）
+            search_depth: 搜索深度（basic/advanced）
+            include_domains: 包含的域名列表
+            exclude_domains: 排除的域名列表
+            include_answer: 是否包含 AI 生成的答案
+            include_raw_content: 是否包含原始内容
+            include_images: 是否包含图片
+        
+        Returns:
+            搜索结果字典
+        """
+        
+        url = f"{self.base_url}/search"
+        
+        payload = {
+            "api_key": self.api_key,
+            "query": query,
+            "max_results": max_results,
+            "search_depth": search_depth,
+            "include_answer": include_answer,
+            "include_raw_content": include_raw_content,
+            "include_images": include_images,
+        }
+        
+        if include_domains:
+            payload["include_domains"] = include_domains
+        if exclude_domains:
+            payload["exclude_domains"] = exclude_domains
         
         try:
-            results = self.client.search(
-                query=query,
-                max_results=max_results,
-                search_depth=search_depth
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
             )
             
-            print(f"✅ 找到 {len(results.get('results', []))} 条结果")
-            return results
-            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result
+                
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            print(f"❌ HTTP Error {e.code}: {error_body}", file=sys.stderr)
+            return {"error": f"HTTP {e.code}", "details": error_body}
+        except urllib.error.URLError as e:
+            print(f"❌ URL Error: {e.reason}", file=sys.stderr)
+            return {"error": str(e.reason)}
         except Exception as e:
-            print(f"❌ 搜索失败: {e}")
-            return {"error": str(e), "results": []}
+            print(f"❌ Error: {e}", file=sys.stderr)
+            return {"error": str(e)}
     
-    def search_news(self, topic: str, days: int = 7) -> Dict:
-        """搜索新闻（带时间过滤）"""
-        query = f"{topic} latest news"
-        
-        # Tavily 支持 include_raw_content 和 days 参数
-        try:
-            results = self.client.search(
-                query=query,
-                max_results=10,
-                search_depth="advanced",
-                include_raw_content=False,
-                days=days
-            )
-            
-            return results
-            
-        except Exception as e:
-            print(f"❌ 新闻搜索失败: {e}")
-            return {"error": str(e), "results": []}
-    
-    def format_results(self, results: Dict, max_items: int = 5) -> str:
-        """格式化搜索结果"""
+    def format_results(self, results: Dict) -> str:
+        """格式化搜索结果为可读文本"""
         if "error" in results:
-            return f"❌ 错误: {results['error']}"
-        
-        items = results.get("results", [])
-        
-        if not items:
-            return "❌ 未找到结果"
+            return f"❌ 搜索失败: {results['error']}"
         
         lines = []
-        lines.append("=" * 70)
-        lines.append(f"📰 搜索结果 ({len(items)} 条)")
-        lines.append("=" * 70)
         
-        for i, item in enumerate(items[:max_items], 1):
-            title = item.get("title", "无标题")
-            url = item.get("url", "")
-            content = item.get("content", "")[:200] + "..."
-            score = item.get("score", 0)
+        # AI 生成的答案（如果有）
+        if "answer" in results and results["answer"]:
+            lines.append("=" * 60)
+            lines.append("💡 AI 摘要")
+            lines.append("=" * 60)
+            lines.append(results["answer"])
+            lines.append("")
+        
+        # 搜索结果
+        if "results" in results:
+            lines.append("=" * 60)
+            lines.append(f"📰 搜索结果 ({len(results['results'])} 条)")
+            lines.append("=" * 60)
             
-            lines.append(f"\n{i}. {title}")
-            lines.append(f"   相关度: {score:.2f}")
-            lines.append(f"   链接: {url}")
-            lines.append(f"   摘要: {content}")
+            for i, item in enumerate(results["results"], 1):
+                lines.append(f"\n{i}. {item.get('title', '无标题')}")
+                lines.append(f"   链接: {item.get('url', '')}")
+                lines.append(f"   来源: {item.get('source', '未知')}")
+                
+                if "content" in item:
+                    content = item["content"]
+                    if len(content) > 200:
+                        content = content[:200] + "..."
+                    lines.append(f"   摘要: {content}")
+                
+                if "published_date" in item:
+                    lines.append(f"   时间: {item['published_date']}")
+                
+                lines.append("")
         
         return "\n".join(lines)
-    
-    def save_results(self, results: Dict, output_file: str):
-        """保存结果到文件"""
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        
-        print(f"✅ 结果已保存: {output_file}")
 
 
 def main():
     """主函数"""
-    import argparse
+    if len(sys.argv) < 2:
+        print("用法: python3 tavily-search.py <搜索关键词> [--max 10] [--depth basic|advanced]")
+        print("示例: python3 tavily-search.py '国际新闻 地缘政治' --max 10 --depth advanced")
+        sys.exit(1)
     
-    parser = argparse.ArgumentParser(description="Tavily 搜索工具")
-    parser.add_argument("query", help="搜索关键词")
-    parser.add_argument("--max", type=int, default=10, help="最大结果数")
-    parser.add_argument("--depth", default="advanced", choices=["basic", "advanced"], help="搜索深度")
-    parser.add_argument("--output", help="输出文件路径")
+    # 解析参数
+    query = sys.argv[1]
+    max_results = 10
+    search_depth = "advanced"
     
-    args = parser.parse_args()
-    
-    # 创建客户端
-    searcher = TavilySearch()
+    i = 2
+    while i < len(sys.argv):
+        if sys.argv[i] == "--max" and i + 1 < len(sys.argv):
+            max_results = int(sys.argv[i + 1])
+            i += 2
+        elif sys.argv[i] == "--depth" and i + 1 < len(sys.argv):
+            search_depth = sys.argv[i + 1]
+            i += 2
+        else:
+            i += 1
     
     # 执行搜索
-    results = searcher.search(
-        query=args.query,
-        max_results=args.max,
-        search_depth=args.depth
+    print(f"🔍 正在搜索: {query}")
+    print(f"📊 最大结果: {max_results}, 深度: {search_depth}")
+    print("")
+    
+    client = TavilySearch()
+    results = client.search(
+        query=query,
+        max_results=max_results,
+        search_depth=search_depth,
+        include_answer=True
     )
     
-    # 显示结果
-    print(searcher.format_results(results))
+    # 格式化输出
+    print(client.format_results(results))
     
-    # 保存结果
-    if args.output:
-        searcher.save_results(results, args.output)
+    # 保存 JSON 结果
+    output_file = os.path.expanduser("~/.openclaw/workspace/data/tavily_last_search.json")
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+    print(f"\n📄 完整结果已保存: {output_file}")
 
 
 if __name__ == "__main__":
