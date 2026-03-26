@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洛伦兹吸引子 - Lorenz Attractor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #3498db, #e74c3c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(52, 152, 219, 0.3);
+            border-color: #3498db;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🦋 洛伦兹吸引子</h1>
+        <p><strong>Lorenz Attractor</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标拖动：旋转视角</p>
+        <p>• 滚轮：缩放</p>
+        <p>• 点击：重置轨迹</p>
+        <p>• 观察蝴蝶效应</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setView('3d')" id="btn-3d" class="active">3D视图</button>
+        <button onclick="setView('xy')" id="btn-xy">XY平面</button>
+        <button onclick="setView('xz')" id="btn-xz">XZ平面</button>
+        <button onclick="setView('yz')" id="btn-yz">YZ平面</button>
+        <button onclick="togglePause()">暂停/继续</button>
+        <button onclick="reset()">重置</button>
+    </div>
+
+    <div class="stats">
+        <div>σ (sigma): <span id="sigma">10</span></div>
+        <div>ρ (rho): <span id="rho">28</span></div>
+        <div>β (beta): <span id="beta">2.67</span></div>
+        <div>轨迹点: <span id="points">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <strong>洛伦兹方程组：</strong>
+        </div>
+        <div class="legend-item">dx/dt = σ(y - x)</div>
+        <div class="legend-item">dy/dt = x(ρ - z) - y</div>
+        <div class="legend-item">dz/dt = xy - βz</div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 洛伦兹参数
+        let sigma = 10;
+        let rho = 28;
+        let beta = 8 / 3;
+        
+        // 状态变量
+        let x = 0.1, y = 0, z = 0;
+        let dt = 0.005;
+        
+        // 轨迹
+        let trajectory = [];
+        const MAX_POINTS = 10000;
+        
+        // 视图控制
+        let currentView = '3d';
+        let rotationX = 0;
+        let rotationY = 0;
+        let scale = 15;
+        let isPaused = false;
+        
+        // 拖动状态
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', mouseDown);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('mouseup', mouseUp);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 洛伦兹方程
+        function lorenz(x, y, z) {
+            const dx = sigma * (y - x);
+            const dy = x * (rho - z) - y;
+            const dz = x * y - beta * z;
+            
+            return { dx, dy, dz };
+        }
+
+        // 更新轨迹
+        function updateTrajectory() {
+            if (isPaused) return;
+            
+            // 多次迭代以加速
+            for (let i = 0; i < 10; i++) {
+                const derivatives = lorenz(x, y, z);
+                
+                x += derivatives.dx * dt;
+                y += derivatives.dy * dt;
+                z += derivatives.dz * dt;
+                
+                trajectory.push({ x, y, z });
+                
+                if (trajectory.length > MAX_POINTS) {
+                    trajectory.shift();
+                }
+            }
+            
+            document.getElementById('points').textContent = trajectory.length;
+        }
+
+        // 3D投影
+        function project3D(point) {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // 旋转
+            let x = point.x;
+            let y = point.y;
+            let z = point.z;
+            
+            // 绕Y轴旋转
+            const cosY = Math.cos(rotationY);
+            const sinY = Math.sin(rotationY);
+            const tempX = x * cosY - z * sinY;
+            const tempZ = x * sinY + z * cosY;
+            x = tempX;
+            z = tempZ;
+            
+            // 绕X轴旋转
+            const cosX = Math.cos(rotationX);
+            const sinX = Math.sin(rotationX);
+            const tempY = y * cosX - z * sinX;
+            z = y * sinX + z * cosX;
+            y = tempY;
+            
+            // 投影到2D
+            const screenX = centerX + x * scale;
+            const screenY = centerY - y * scale;
+            
+            return { x: screenX, y: screenY, z: z };
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制坐标轴
+            drawAxes();
+            
+            // 绘制轨迹
+            if (trajectory.length < 2) return;
+            
+            ctx.lineWidth = 1.5;
+            
+            for (let i = 1; i < trajectory.length; i++) {
+                const prev = trajectory[i - 1];
+                const curr = trajectory[i];
+                
+                let prevProj, currProj;
+                
+                if (currentView === '3d') {
+                    prevProj = project3D(prev);
+                    currProj = project3D(curr);
+                } else if (currentView === 'xy') {
+                    prevProj = {
+                        x: canvas.width / 2 + prev.x * scale,
+                        y: canvas.height / 2 - prev.y * scale,
+                        z: prev.z
+                    };
+                    currProj = {
+                        x: canvas.width / 2 + curr.x * scale,
+                        y: canvas.height / 2 - curr.y * scale,
+                        z: curr.z
+                    };
+                } else if (currentView === 'xz') {
+                    prevProj = {
+                        x: canvas.width / 2 + prev.x * scale,
+                        y: canvas.height / 2 - prev.z * scale,
+                        z: prev.y
+                    };
+                    currProj = {
+                        x: canvas.width / 2 + curr.x * scale,
+                        y: canvas.height / 2 - curr.z * scale,
+                        z: curr.y
+                    };
+                } else if (currentView === 'yz') {
+                    prevProj = {
+                        x: canvas.width / 2 + prev.y * scale,
+                        y: canvas.height / 2 - prev.z * scale,
+                        z: prev.x
+                    };
+                    currProj = {
+                        x: canvas.width / 2 + curr.y * scale,
+                        y: canvas.height / 2 - curr.z * scale,
+                        z: curr.x
+                    };
+                }
+                
+                // 颜色基于深度或索引
+                const ratio = i / trajectory.length;
+                const hue = ratio * 360;
+                const alpha = ratio * 0.8 + 0.2;
+                
+                ctx.strokeStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+                
+                ctx.beginPath();
+                ctx.moveTo(prevProj.x, prevProj.y);
+                ctx.lineTo(currProj.x, currProj.y);
+                ctx.stroke();
+            }
+            
+            // 绘制当前点
+            if (trajectory.length > 0) {
+                const current = trajectory[trajectory.length - 1];
+                let currentProj;
+                
+                if (currentView === '3d') {
+                    currentProj = project3D(current);
+                } else if (currentView === 'xy') {
+                    currentProj = {
+                        x: canvas.width / 2 + current.x * scale,
+                        y: canvas.height / 2 - current.y * scale
+                    };
+                } else if (currentView === 'xz') {
+                    currentProj = {
+                        x: canvas.width / 2 + current.x * scale,
+                        y: canvas.height / 2 - current.z * scale
+                    };
+                } else if (currentView === 'yz') {
+                    currentProj = {
+                        x: canvas.width / 2 + current.y * scale,
+                        y: canvas.height / 2 - current.z * scale
+                    };
+                }
+                
+                // 发光效果
+                const gradient = ctx.createRadialGradient(
+                    currentProj.x, currentProj.y, 0,
+                    currentProj.x, currentProj.y, 10
+                );
+                gradient.addColorStop(0, '#ffffff');
+                gradient.addColorStop(0.5, '#3498db');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(currentProj.x, currentProj.y, 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 绘制坐标轴
+        function drawAxes() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const axisLength = 50;
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            
+            if (currentView === '3d') {
+                // X轴
+                const xAxis = project3D({ x: axisLength, y: 0, z: 0 });
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(xAxis.x, xAxis.y);
+                ctx.stroke();
+                
+                // Y轴
+                const yAxis = project3D({ x: 0, y: axisLength, z: 0 });
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(yAxis.x, yAxis.y);
+                ctx.stroke();
+                
+                // Z轴
+                const zAxis = project3D({ x: 0, y: 0, z: axisLength });
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(zAxis.x, zAxis.y);
+                ctx.stroke();
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新轨迹
+            updateTrajectory();
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseDown(e) {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        }
+
+        function mouseMove(e) {
+            if (!isDragging) return;
+            
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+            
+            rotationY += deltaX * 0.01;
+            rotationX += deltaY * 0.01;
+            
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        }
+
+        function mouseUp() {
+            isDragging = false;
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            scale += e.deltaY > 0 ? -1 : 1;
+            scale = Math.max(5, Math.min(50, scale));
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseDown({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchEnd() {
+            mouseUp();
+        }
+
+        // 设置视图
+        function setView(view) {
+            currentView = view;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + view).classList.add('active');
+        }
+
+        // 切换暂停
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+
+        // 重置
+        function reset() {
+            x = 0.1;
+            y = 0;
+            z = 0;
+            trajectory = [];
+            rotationX = 0;
+            rotationY = 0;
+            scale = 15;
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
