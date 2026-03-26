@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>量子隧穿效应 - Quantum Tunneling Effect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 340px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #9b59b6, #3498db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(155, 89, 182, 0.3);
+            border-color: #9b59b6;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>⚛️ 量子隧穿效应</h1>
+        <p><strong>Quantum Tunneling Effect</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 鼠标X轴：调整势垒宽度</p>
+        <p>• 鼠标Y轴：调整粒子能量</p>
+        <p>• 滚轮：调整势垒高度</p>
+        <p>• 点击：发射粒子</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setMode('single')" id="btn-single" class="active">单粒子</button>
+        <button onclick="setMode('wave')" id="btn-wave">波包</button>
+        <button onclick="setMode('many')" id="btn-many">多粒子</button>
+        <button onclick="togglePause()">暂停/继续</button>
+        <button onclick="reset()">重置</button>
+    </div>
+
+    <div class="stats">
+        <div>势垒宽度: <span id="barrierWidth">50</span> px</div>
+        <div>势垒高度: <span id="barrierHeight">100</span> eV</div>
+        <div>粒子能量: <span id="particleEnergy">80</span> eV</div>
+        <div>隧穿概率: <span id="tunnelingProb">12.3</span>%</div>
+        <div>透射粒子: <span id="transmitted">0</span></div>
+        <div>反射粒子: <span id="reflected">0</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #9b59b6;"></div>
+            <span>粒子（量子态）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #e74c3c;"></div>
+            <span>势垒（经典禁区）</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #3498db;"></div>
+            <span>波函数（概率幅）</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 参数
+        let barrierWidth = 50;
+        let barrierHeight = 100;
+        let particleEnergy = 80;
+        let currentMode = 'single';
+        let isPaused = false;
+        
+        // 粒子数组
+        let particles = [];
+        let transmittedCount = 0;
+        let reflectedCount = 0;
+        
+        // 波包
+        let wavePacket = null;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 创建初始粒子
+            createParticle();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('click', click);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 计算隧穿概率（简化模型）
+        function calculateTunnelingProbability() {
+            const k = Math.sqrt(2 * particleEnergy) / 10;
+            const kappa = Math.sqrt(2 * (barrierHeight - particleEnergy)) / 10;
+            const prob = Math.exp(-2 * kappa * barrierWidth / 50) * 100;
+            return Math.min(100, Math.max(0, prob));
+        }
+
+        // 创建粒子
+        function createParticle() {
+            const startX = 50;
+            const startY = canvas.height / 2;
+            
+            particles.push({
+                x: startX,
+                y: startY,
+                vx: 2 + Math.random() * 2,
+                vy: (Math.random() - 0.5) * 0.5,
+                energy: particleEnergy,
+                phase: 0,
+                alive: true,
+                transmitted: false,
+                trail: []
+            });
+        }
+
+        // 创建波包
+        function createWavePacket() {
+            wavePacket = {
+                x: 50,
+                y: canvas.height / 2,
+                width: 100,
+                amplitude: 50,
+                k: 0.1,
+                phase: 0,
+                speed: 2
+            };
+        }
+
+        // 鼠标移动
+        function mouseMove(e) {
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 势垒宽度: 20-100 px
+            barrierWidth = 20 + (x / canvas.width) * 80;
+            
+            // 粒子能量: 20-150 eV
+            particleEnergy = 20 + (1 - y / canvas.height) * 130;
+            
+            // 更新显示
+            document.getElementById('barrierWidth').textContent = Math.round(barrierWidth);
+            document.getElementById('particleEnergy').textContent = Math.round(particleEnergy);
+            document.getElementById('tunnelingProb').textContent = calculateTunnelingProbability().toFixed(1);
+        }
+
+        // 点击
+        function click() {
+            if (currentMode === 'single') {
+                createParticle();
+            } else if (currentMode === 'wave') {
+                createWavePacket();
+            } else if (currentMode === 'many') {
+                for (let i = 0; i < 10; i++) {
+                    setTimeout(() => createParticle(), i * 100);
+                }
+            }
+        }
+
+        // 滚轮
+        function wheel(e) {
+            e.preventDefault();
+            barrierHeight += e.deltaY > 0 ? -5 : 5;
+            barrierHeight = Math.max(50, Math.min(200, barrierHeight));
+            document.getElementById('barrierHeight').textContent = Math.round(barrierHeight);
+            document.getElementById('tunnelingProb').textContent = calculateTunnelingProbability().toFixed(1);
+        }
+
+        // 触摸事件
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+            click();
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        // 设置模式
+        function setMode(mode) {
+            currentMode = mode;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + mode).classList.add('active');
+            
+            // 清空粒子
+            particles = [];
+            wavePacket = null;
+        }
+
+        // 切换暂停
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+
+        // 重置
+        function reset() {
+            particles = [];
+            wavePacket = null;
+            transmittedCount = 0;
+            reflectedCount = 0;
+            document.getElementById('transmitted').textContent = '0';
+            document.getElementById('reflected').textContent = '0';
+        }
+
+        // 更新粒子
+        function updateParticles() {
+            const barrierStart = canvas.width / 2 - barrierWidth / 2;
+            const barrierEnd = canvas.width / 2 + barrierWidth / 2;
+            
+            for (let particle of particles) {
+                if (!particle.alive) continue;
+                
+                // 添加轨迹
+                particle.trail.push({ x: particle.x, y: particle.y });
+                if (particle.trail.length > 100) {
+                    particle.trail.shift();
+                }
+                
+                // 更新位置
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.phase += 0.1;
+                
+                // 边界检测
+                if (particle.y < 0 || particle.y > canvas.height) {
+                    particle.vy *= -1;
+                }
+                
+                // 势垒碰撞
+                if (particle.x >= barrierStart && particle.x <= barrierEnd) {
+                    // 在势垒内
+                    const tunnelingProb = calculateTunnelingProbability() / 100;
+                    
+                    if (Math.random() > tunnelingProb) {
+                        // 反射
+                        particle.vx = -Math.abs(particle.vx);
+                        particle.transmitted = false;
+                    } else {
+                        // 隧穿
+                        particle.transmitted = true;
+                    }
+                }
+                
+                // 出界检测
+                if (particle.x < 0) {
+                    particle.alive = false;
+                    if (!particle.transmitted) {
+                        reflectedCount++;
+                        document.getElementById('reflected').textContent = reflectedCount;
+                    }
+                }
+                
+                if (particle.x > canvas.width) {
+                    particle.alive = false;
+                    if (particle.transmitted) {
+                        transmittedCount++;
+                        document.getElementById('transmitted').textContent = transmittedCount;
+                    }
+                }
+            }
+            
+            // 移除死亡粒子
+            particles = particles.filter(p => p.alive);
+        }
+
+        // 更新波包
+        function updateWavePacket() {
+            if (!wavePacket) return;
+            
+            wavePacket.x += wavePacket.speed;
+            wavePacket.phase += 0.1;
+            
+            if (wavePacket.x > canvas.width + wavePacket.width) {
+                wavePacket = null;
+            }
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const barrierStart = canvas.width / 2 - barrierWidth / 2;
+            const barrierEnd = canvas.width / 2 + barrierWidth / 2;
+            
+            // 绘制势垒
+            const gradient = ctx.createLinearGradient(barrierStart, 0, barrierEnd, 0);
+            gradient.addColorStop(0, 'rgba(231, 76, 60, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(231, 76, 60, 0.8)');
+            gradient.addColorStop(1, 'rgba(231, 76, 60, 0.3)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(barrierStart, 0, barrierWidth, canvas.height);
+            
+            // 势垒边框
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(barrierStart, 0, barrierWidth, canvas.height);
+            
+            // 势垒高度标签
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '14px Arial';
+            ctx.fillText(`V₀ = ${Math.round(barrierHeight)} eV`, barrierStart + 5, 30);
+            
+            // 绘制粒子
+            for (let particle of particles) {
+                // 轨迹
+                if (particle.trail.length > 1) {
+                    ctx.strokeStyle = particle.transmitted ? 
+                        'rgba(46, 204, 113, 0.3)' : 'rgba(155, 89, 182, 0.3)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(particle.trail[0].x, particle.trail[0].y);
+                    
+                    for (let point of particle.trail) {
+                        ctx.lineTo(point.x, point.y);
+                    }
+                    
+                    ctx.stroke();
+                }
+                
+                // 粒子主体
+                const gradient = ctx.createRadialGradient(
+                    particle.x, particle.y, 0,
+                    particle.x, particle.y, 15
+                );
+                gradient.addColorStop(0, particle.transmitted ? '#2ecc71' : '#9b59b6');
+                gradient.addColorStop(0.5, particle.transmitted ? 
+                    'rgba(46, 204, 113, 0.5)' : 'rgba(155, 89, 182, 0.5)');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, 15, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 波动效果
+                const waveSize = 5 + Math.sin(particle.phase) * 3;
+                ctx.strokeStyle = particle.transmitted ? '#2ecc71' : '#9b59b6';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, waveSize, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 能量标签
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px Arial';
+                ctx.fillText(`E=${Math.round(particle.energy)}eV`, particle.x + 20, particle.y - 10);
+            }
+            
+            // 绘制波包
+            if (wavePacket) {
+                ctx.strokeStyle = '#3498db';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                
+                for (let i = -wavePacket.width / 2; i <= wavePacket.width / 2; i += 2) {
+                    const x = wavePacket.x + i;
+                    const envelope = Math.exp(-Math.pow(i / (wavePacket.width / 4), 2));
+                    const wave = Math.sin(wavePacket.k * i + wavePacket.phase) * wavePacket.amplitude * envelope;
+                    const y = wavePacket.y + wave;
+                    
+                    if (i === -wavePacket.width / 2) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                
+                ctx.stroke();
+                
+                // 波包中心
+                ctx.fillStyle = '#3498db';
+                ctx.beginPath();
+                ctx.arc(wavePacket.x, wavePacket.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 绘制能量线
+            const energyY = canvas.height - (particleEnergy / barrierHeight) * canvas.height;
+            ctx.strokeStyle = '#ffffff40';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, energyY);
+            ctx.lineTo(canvas.width, energyY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px Arial';
+            ctx.fillText(`E = ${Math.round(particleEnergy)} eV`, 10, energyY - 5);
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新
+            if (!isPaused) {
+                updateParticles();
+                updateWavePacket();
+            }
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
