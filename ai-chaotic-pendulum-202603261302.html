@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>混沌摆 - Chaotic Pendulum</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+        }
+
+        .info h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #e74c3c, #f39c12);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .info p {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .controls button.active {
+            background: rgba(231, 76, 60, 0.3);
+            border-color: #e74c3c;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="info">
+        <h1>🌀 混沌摆</h1>
+        <p><strong>Chaotic Pendulum</strong></p>
+        <p><strong>交互方式：</strong></p>
+        <p>• 拖动摆锤：改变初始位置</p>
+        <p>• 点击：创建新摆</p>
+        <p>• 滚轮：调整重力</p>
+        <p>• 观察蝴蝶效应</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="setMode('single')" id="btn-single" class="active">单摆</button>
+        <button onclick="setMode('double')" id="btn-double">双摆</button>
+        <button onclick="setMode('triple')" id="btn-triple">三摆</button>
+        <button onclick="toggleTrails()">轨迹开关</button>
+        <button onclick="reset()">重置</button>
+    </div>
+
+    <div class="stats">
+        <div>模式: <span id="mode">单摆</span></div>
+        <div>重力: <span id="gravity">9.8</span> m/s²</div>
+        <div>摆长: <span id="length">150</span> px</div>
+        <div>能量: <span id="energy">0</span> J</div>
+        <div>混沌度: <span id="chaos">0</span>%</div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #e74c3c;"></div>
+            <span>摆锤1</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #f39c12;"></div>
+            <span>摆锤2</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #9b59b6;"></div>
+            <span>摆锤3</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas 设置
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 参数
+        let gravity = 9.8;
+        let currentMode = 'single';
+        let showTrails = true;
+        
+        // 摆系统
+        let pendulums = [];
+        
+        // 拖动状态
+        let isDragging = false;
+        let draggedPendulum = null;
+        let draggedBob = null;
+        
+        // 性能监控
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+
+        // 初始化
+        function init() {
+            resize();
+            
+            // 创建初始摆
+            createPendulum();
+            
+            // 事件监听
+            window.addEventListener('resize', resize);
+            canvas.addEventListener('mousedown', mouseDown);
+            canvas.addEventListener('mousemove', mouseMove);
+            canvas.addEventListener('mouseup', mouseUp);
+            canvas.addEventListener('wheel', wheel);
+            canvas.addEventListener('touchstart', touchStart);
+            canvas.addEventListener('touchmove', touchMove);
+            canvas.addEventListener('touchend', touchEnd);
+            
+            // 开始动画
+            animate();
+        }
+
+        // 调整大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        // 创建摆
+        function createPendulum(x, y) {
+            const centerX = x || canvas.width / 2;
+            const centerY = y || canvas.height / 3;
+            
+            const pendulum = {
+                anchorX: centerX,
+                anchorY: centerY,
+                bobs: []
+            };
+            
+            const length = 150;
+            const mass = 10;
+            
+            if (currentMode === 'single') {
+                pendulum.bobs.push({
+                    angle: Math.PI / 4,
+                    angleVelocity: 0,
+                    length: length,
+                    mass: mass,
+                    trail: [],
+                    color: '#e74c3c'
+                });
+            } else if (currentMode === 'double') {
+                pendulum.bobs.push({
+                    angle: Math.PI / 2,
+                    angleVelocity: 0,
+                    length: length,
+                    mass: mass,
+                    trail: [],
+                    color: '#e74c3c'
+                });
+                pendulum.bobs.push({
+                    angle: Math.PI / 2,
+                    angleVelocity: 0,
+                    length: length * 0.8,
+                    mass: mass * 0.8,
+                    trail: [],
+                    color: '#f39c12'
+                });
+            } else if (currentMode === 'triple') {
+                pendulum.bobs.push({
+                    angle: Math.PI / 2,
+                    angleVelocity: 0,
+                    length: length,
+                    mass: mass,
+                    trail: [],
+                    color: '#e74c3c'
+                });
+                pendulum.bobs.push({
+                    angle: Math.PI / 2,
+                    angleVelocity: 0,
+                    length: length * 0.8,
+                    mass: mass * 0.8,
+                    trail: [],
+                    color: '#f39c12'
+                });
+                pendulum.bobs.push({
+                    angle: Math.PI / 2,
+                    angleVelocity: 0,
+                    length: length * 0.6,
+                    mass: mass * 0.6,
+                    trail: [],
+                    color: '#9b59b6'
+                });
+            }
+            
+            pendulums.push(pendulum);
+        }
+
+        // 计算摆锤位置
+        function getBobPosition(pendulum, bobIndex) {
+            let x = pendulum.anchorX;
+            let y = pendulum.anchorY;
+            
+            for (let i = 0; i <= bobIndex; i++) {
+                const bob = pendulum.bobs[i];
+                x += Math.sin(bob.angle) * bob.length;
+                y += Math.cos(bob.angle) * bob.length;
+            }
+            
+            return { x, y };
+        }
+
+        // 更新物理
+        function updatePhysics(dt) {
+            for (let pendulum of pendulums) {
+                if (currentMode === 'single') {
+                    // 单摆：简单谐振动
+                    const bob = pendulum.bobs[0];
+                    const acceleration = (-gravity / bob.length) * Math.sin(bob.angle);
+                    bob.angleVelocity += acceleration * dt;
+                    bob.angleVelocity *= 0.999; // 阻尼
+                    bob.angle += bob.angleVelocity * dt;
+                } else {
+                    // 双摆/三摆：混沌系统
+                    for (let i = 0; i < pendulum.bobs.length; i++) {
+                        const bob = pendulum.bobs[i];
+                        const prevBob = i > 0 ? pendulum.bobs[i - 1] : null;
+                        
+                        // 简化的混沌计算
+                        let acceleration = (-gravity / bob.length) * Math.sin(bob.angle);
+                        
+                        if (prevBob) {
+                            // 耦合效应
+                            const coupling = 0.5 * Math.sin(bob.angle - prevBob.angle);
+                            acceleration += coupling * prevBob.angleVelocity * prevBob.angleVelocity;
+                        }
+                        
+                        bob.angleVelocity += acceleration * dt;
+                        bob.angleVelocity *= 0.999; // 阻尼
+                        bob.angle += bob.angleVelocity * dt;
+                    }
+                }
+                
+                // 更新轨迹
+                if (showTrails) {
+                    for (let i = 0; i < pendulum.bobs.length; i++) {
+                        const pos = getBobPosition(pendulum, i);
+                        pendulum.bobs[i].trail.push({ x: pos.x, y: pos.y });
+                        
+                        if (pendulum.bobs[i].trail.length > 500) {
+                            pendulum.bobs[i].trail.shift();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 计算能量
+        function calculateEnergy() {
+            let totalEnergy = 0;
+            
+            for (let pendulum of pendulums) {
+                for (let bob of pendulum.bobs) {
+                    const pos = getBobPosition(pendulum, pendulum.bobs.indexOf(bob));
+                    const height = pendulum.anchorY - pos.y + bob.length;
+                    const velocity = bob.angleVelocity * bob.length;
+                    
+                    const kineticEnergy = 0.5 * bob.mass * velocity * velocity;
+                    const potentialEnergy = bob.mass * gravity * height;
+                    
+                    totalEnergy += kineticEnergy + potentialEnergy;
+                }
+            }
+            
+            return totalEnergy;
+        }
+
+        // 计算混沌度
+        function calculateChaos() {
+            if (pendulums.length === 0) return 0;
+            
+            let totalVelocity = 0;
+            let count = 0;
+            
+            for (let pendulum of pendulums) {
+                for (let bob of pendulum.bobs) {
+                    totalVelocity += Math.abs(bob.angleVelocity);
+                    count++;
+                }
+            }
+            
+            const avgVelocity = totalVelocity / count;
+            const chaos = Math.min(100, avgVelocity * 100);
+            
+            return chaos;
+        }
+
+        // 绘制
+        function draw() {
+            // 清除背景（带拖尾）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            for (let pendulum of pendulums) {
+                // 绘制轨迹
+                if (showTrails) {
+                    for (let i = 0; i < pendulum.bobs.length; i++) {
+                        const bob = pendulum.bobs[i];
+                        if (bob.trail.length < 2) continue;
+                        
+                        ctx.strokeStyle = bob.color + '40';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(bob.trail[0].x, bob.trail[0].y);
+                        
+                        for (let j = 1; j < bob.trail.length; j++) {
+                            ctx.lineTo(bob.trail[j].x, bob.trail[j].y);
+                        }
+                        
+                        ctx.stroke();
+                    }
+                }
+                
+                // 绘制支点
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(pendulum.anchorX, pendulum.anchorY, 5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 绘制摆杆和摆锤
+                let prevX = pendulum.anchorX;
+                let prevY = pendulum.anchorY;
+                
+                for (let i = 0; i < pendulum.bobs.length; i++) {
+                    const bob = pendulum.bobs[i];
+                    const pos = getBobPosition(pendulum, i);
+                    
+                    // 摆杆
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(prevX, prevY);
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.stroke();
+                    
+                    // 摆锤
+                    const gradient = ctx.createRadialGradient(
+                        pos.x, pos.y, 0,
+                        pos.x, pos.y, 15
+                    );
+                    gradient.addColorStop(0, bob.color);
+                    gradient.addColorStop(0.5, bob.color + '80');
+                    gradient.addColorStop(1, 'transparent');
+                    
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 摆锤核心
+                    ctx.fillStyle = bob.color;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    prevX = pos.x;
+                    prevY = pos.y;
+                }
+            }
+            
+            // 更新统计
+            document.getElementById('energy').textContent = Math.round(calculateEnergy());
+            document.getElementById('chaos').textContent = Math.round(calculateChaos());
+        }
+
+        // 动画循环
+        function animate() {
+            // 性能监控
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = fps;
+            }
+            
+            // 更新物理
+            const dt = 0.5;
+            updatePhysics(dt);
+            
+            // 绘制
+            draw();
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 事件处理
+        function mouseDown(e) {
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 检查是否点击了摆锤
+            for (let pendulum of pendulums) {
+                for (let i = 0; i < pendulum.bobs.length; i++) {
+                    const pos = getBobPosition(pendulum, i);
+                    const dist = Math.sqrt((x - pos.x) ** 2 + (y - pos.y) ** 2);
+                    
+                    if (dist < 20) {
+                        isDragging = true;
+                        draggedPendulum = pendulum;
+                        draggedBob = i;
+                        return;
+                    }
+                }
+            }
+            
+            // 创建新摆
+            createPendulum(x, y);
+        }
+
+        function mouseMove(e) {
+            if (!isDragging || !draggedPendulum) return;
+            
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 计算角度
+            let prevX = draggedPendulum.anchorX;
+            let prevY = draggedPendulum.anchorY;
+            
+            if (draggedBob > 0) {
+                const prevPos = getBobPosition(draggedPendulum, draggedBob - 1);
+                prevX = prevPos.x;
+                prevY = prevPos.y;
+            }
+            
+            const dx = x - prevX;
+            const dy = y - prevY;
+            const angle = Math.atan2(dx, dy);
+            
+            draggedPendulum.bobs[draggedBob].angle = angle;
+            draggedPendulum.bobs[draggedBob].angleVelocity = 0;
+        }
+
+        function mouseUp() {
+            isDragging = false;
+            draggedPendulum = null;
+            draggedBob = null;
+        }
+
+        function wheel(e) {
+            e.preventDefault();
+            gravity += e.deltaY > 0 ? -0.5 : 0.5;
+            gravity = Math.max(1, Math.min(20, gravity));
+            document.getElementById('gravity').textContent = gravity.toFixed(1);
+        }
+
+        function touchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseDown({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+
+        function touchEnd() {
+            mouseUp();
+        }
+
+        // 设置模式
+        function setMode(mode) {
+            currentMode = mode;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('btn-' + mode).classList.add('active');
+            
+            // 更新显示
+            const modeNames = {
+                'single': '单摆',
+                'double': '双摆',
+                'triple': '三摆'
+            };
+            document.getElementById('mode').textContent = modeNames[mode];
+            
+            // 清空并重新创建
+            pendulums = [];
+            createPendulum();
+        }
+
+        // 切换轨迹
+        function toggleTrails() {
+            showTrails = !showTrails;
+            
+            if (!showTrails) {
+                for (let pendulum of pendulums) {
+                    for (let bob of pendulum.bobs) {
+                        bob.trail = [];
+                    }
+                }
+            }
+        }
+
+        // 重置
+        function reset() {
+            pendulums = [];
+            createPendulum();
+        }
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
